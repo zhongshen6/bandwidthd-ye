@@ -1,0 +1,3413 @@
+
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>流量可视化</title>
+  
+  <!-- 外部库 -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  
+  <style>
+    /* =========================================
+       1. Variables & Reset
+       ========================================= */
+    :root {
+      /* Colors */
+      --bg-body: #001219; /* 兜底背景 */
+      --bg-gradient-start: #001219;
+      --bg-gradient-end: #071027;
+      
+      --c-card: #0b1220;
+      --c-text-main: #e6eef6;
+      --c-text-muted: #94a3b8;
+      --c-primary: #3b82f6;
+      --c-primary-hover: #2563eb;
+      --c-success: #10b981;
+      
+      --glass-bg: rgba(255, 255, 255, 0.03);
+      --glass-border: rgba(255, 255, 255, 0.06);
+      --glass-hover: rgba(255, 255, 255, 0.08);
+      
+      /* Layers (Z-Index) */
+      --z-dropdown: 50;
+      --z-modal-backdrop: 1000;
+      --z-modal-content: 1001;
+      --z-loading: 9999;
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
+
+    html {
+      background: linear-gradient(180deg, var(--bg-gradient-start) 0%, var(--bg-gradient-end) 100%);
+      min-height: 100%;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      min-height: 100dvh;
+      overflow-x: hidden;
+      font-family: Inter, system-ui, -apple-system, sans-serif;
+      background: transparent;
+      color: var(--c-text-main);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* =========================================
+       2. Layout & Common
+       ========================================= */
+    .app {
+      max-width: 1100px;
+      margin: 18px auto;
+      padding: 16px;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    h1 {
+      font-size: 18px;
+      margin: 0;
+      font-weight: 600;
+    }
+
+    .panel {
+      display: flex;
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .left {
+      flex: 1;
+      min-width: 0; /* 防止 Flex 子元素溢出 */
+    }
+
+    .right {
+      width: 450px;
+      flex-shrink: 0;
+    }
+
+    .card {
+      background: var(--c-card);
+      border-radius: 12px;
+      padding: 12px;
+      box-shadow: 0 6px 18px rgba(2, 6, 23, 0.6);
+    }
+
+    .row {
+      display: flex;
+      gap: 8px;
+    }
+
+    .row > div {
+      flex: 1;
+    }
+
+    .footer {
+      margin-top: 12px;
+      color: var(--c-text-muted);
+      font-size: 13px;
+    }
+
+    /* =========================================
+       3. Components: Inputs & Buttons
+       ========================================= */
+    label {
+      display: block;
+      font-size: 12px;
+      color: var(--c-text-muted);
+      margin-bottom: 4px;
+    }
+
+    select, input[type=file], .input-text, button {
+      width: 100%;
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--glass-border);
+      background: var(--glass-bg);
+      color: inherit;
+      font-family: inherit;
+      font-size: 13px;
+      transition: all 0.2s;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    button:hover, .input-text:hover {
+      background: var(--glass-hover);
+      border-color: rgba(255,255,255,0.2);
+    }
+
+    .input-text:focus {
+      outline: none;
+      border-color: var(--c-primary);
+    }
+
+    .controls {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .icon-btn {
+      width: 40px !important;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .btn-primary {
+      background: rgba(59, 130, 246, 0.8);
+      border: 1px solid rgba(59, 130, 246, 0.4);
+      color: white;
+      width: auto;
+      padding: 8px 24px;
+      font-weight: 500;
+    }
+
+    .btn-primary:hover {
+      background: var(--c-primary);
+    }
+
+    /* =========================================
+       4. Components: Custom Select & Dropdown
+       ========================================= */
+    .custom-select {
+      position: relative;
+      font-size: 13px;
+      user-select: none;
+    }
+    
+    /* 解决下拉框遮挡问题 */
+    .dropdown-container-primary { z-index: 20; position: relative; }
+    .dropdown-container-secondary { z-index: 19; position: relative; }
+
+    .select-trigger {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--glass-border);
+      background: var(--glass-bg);
+      color: var(--c-text-main);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .select-trigger:hover {
+      background: var(--glass-hover);
+      border-color: rgba(255,255,255,0.2);
+    }
+
+    .trigger-input {
+      background: transparent;
+      border: none;
+      color: inherit;
+      font-family: inherit;
+      font-size: inherit;
+      width: 100%;
+      padding: 0;
+      margin: 0;
+      cursor: pointer;
+      text-overflow: ellipsis;
+    }
+    
+    .trigger-input:focus { outline: none; }
+    .custom-select.open .trigger-input { cursor: text; color: #fff; }
+
+    .select-trigger .arrow {
+      font-size: 10px;
+      color: var(--c-text-muted);
+      transition: transform 0.2s;
+      margin-left: 8px;
+      flex-shrink: 0;
+    }
+
+    .custom-select.open .select-trigger .arrow { transform: rotate(180deg); }
+
+    .select-options {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      margin-top: 4px;
+      background: var(--c-card);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 8px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+      max-height: 300px;
+      overflow-y: auto;
+      opacity: 0;
+      visibility: hidden;
+      transform: translateY(-10px);
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      z-index: var(--z-dropdown);
+    }
+
+    .custom-select.open .select-options {
+      opacity: 1;
+      visibility: visible;
+      transform: translateY(0);
+    }
+
+    .option-item {
+      padding: 8px 12px;
+      cursor: pointer;
+      border-bottom: 1px solid rgba(255,255,255,0.02);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .option-item:last-child { border-bottom: none; }
+    .option-item:hover { background: rgba(255,255,255,0.05); }
+    
+    .option-item.selected {
+      background: rgba(59,130,246,0.15);
+      color: #60a5fa;
+      font-weight: 500;
+    }
+
+    .option-meta { font-size: 11px; color: var(--c-text-muted); margin-left: 8px; }
+    .no-results { padding: 12px; color: var(--c-text-muted); text-align: center; font-style: italic; }
+
+    /* Scrollbar */
+    .select-options::-webkit-scrollbar { width: 6px; }
+    .select-options::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+
+    /* =========================================
+       5. Components: Charts & Stats
+       ========================================= */
+    .chart-wrap {
+      height: 380px;
+      margin-top: 12px;
+    }
+
+    .pie-wrap {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .pie-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+    }
+
+    .pie-canvas-container {
+      position: relative;
+      width: 400px;
+      height: 250px;
+      transform-origin: left top;
+      margin: 0 auto;
+      transition: transform 0.1s ease-out;
+    }
+
+    .pie-toggle {
+      display: flex;
+      gap: 8px;
+      width: 100%;
+      justify-content: center;
+    }
+
+    .stats {
+      margin-top: 12px;
+      padding: 10px;
+      border-radius: 10px;
+      background: rgba(255,255,255,0.02);
+      font-size: 13px;
+    }
+
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 0;
+      border-bottom: 1px dashed rgba(255,255,255,0.03);
+    }
+    
+    .stat-row:last-child { border-bottom: 0; }
+    .stat-label { color: var(--c-text-muted); }
+    .stat-value { font-weight: 600; }
+
+    /* =========================================
+       6. Components: Time Slider
+       ========================================= */
+    .time-slider-container {
+      margin: 0 26px 12px 26px;
+    }
+
+    .time-slider {
+      height: 40px;
+      position: relative;
+      cursor: pointer;
+    }
+
+    .time-slider-track {
+      position: absolute;
+      top: 50%;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: var(--glass-bg);
+      transform: translateY(-50%);
+      border-radius: 2px;
+    }
+
+    .time-slider-fill {
+      position: absolute;
+      top: 50%;
+      left: 0;
+      height: 4px;
+      background: rgba(59, 130, 246, 0.8);
+      transform: translateY(-50%);
+      border-radius: 2px;
+    }
+
+    .time-slider-handle {
+      position: absolute;
+      top: 50%;
+      width: 16px;
+      height: 16px;
+      background: var(--c-primary);
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      cursor: grab;
+      box-shadow: 0 0 0 2px rgba(0,0,0,0.3);
+    }
+    
+    .time-slider-handle:active { cursor: grabbing; }
+
+    .time-slider-labels {
+      position: relative;
+      height: 20px;
+    }
+
+    .time-slider-label {
+      position: absolute;
+      top: 0;
+      font-size: 11px;
+      color: var(--c-text-muted);
+      cursor: pointer;
+      white-space: nowrap;
+      transform: translateX(-50%);
+      transition: color 0.2s;
+    }
+
+    .time-slider-label.active {
+      color: var(--c-primary);
+      font-weight: 600;
+    }
+
+    /* =========================================
+       7. Components: Detailed Info Table
+       ========================================= */
+    .details-card {
+      margin-top: 12px;
+      /* 移除 overflow: hidden 允许内容完整平铺，并可能支持 sticky */
+    }
+
+    .details-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--glass-border);
+    }
+
+    .details-header h3 {
+      font-size: 15px;
+      margin: 0;
+      font-weight: 600;
+      color: var(--c-text-main);
+    }
+
+    .details-table-container {
+      overflow-x: auto;
+      /* 移除 max-height 让表格完全展开，不再产生垂直滚动条 */
+    }
+
+    .details-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      text-align: left;
+    }
+
+    .details-table th {
+      position: sticky;
+      top: 0;
+      background: var(--c-card);
+      color: var(--c-text-muted);
+      font-weight: 500;
+      padding: 10px 12px;
+      border-bottom: 2px solid var(--glass-border);
+      z-index: 10;
+    }
+
+    .details-table td {
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+      white-space: nowrap;
+    }
+
+    .details-table tr:last-child td { border-bottom: none; }
+    .details-table tr:hover { background: rgba(255, 255, 255, 0.02); }
+
+    .details-table .mono { font-family: monospace; }
+    .details-table .text-right { text-align: right; }
+    .details-table .pct-cell { width: 120px; }
+
+    .pct-bar-wrap {
+      width: 100%;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 2px;
+      margin-top: 4px;
+      overflow: hidden;
+    }
+
+    .pct-bar-fill {
+      height: 100%;
+      background: var(--c-primary);
+      border-radius: 2px;
+    }
+
+    /* =========================================
+       8. Components: Modal & Settings
+       ========================================= */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(4px);
+      z-index: var(--z-modal-backdrop);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      opacity: 0;
+      visibility: hidden;
+      transition: all 0.3s ease;
+    }
+
+    .modal-overlay.active {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    .modal-container {
+      width: 500px;
+      max-width: 90%;
+      background: var(--c-card);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 16px;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+      transform: translateY(20px) scale(0.95);
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      display: flex;
+      flex-direction: column;
+      z-index: var(--z-modal-content);
+    }
+
+    .modal-overlay.active .modal-container { transform: translateY(0) scale(1); }
+
+    .modal-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .modal-header h2 { font-size: 18px; margin: 0; color: var(--c-text-main); }
+
+    .modal-close {
+      background: transparent;
+      border: none;
+      color: var(--c-text-muted);
+      font-size: 24px;
+      width: auto;
+      padding: 0;
+      line-height: 1;
+    }
+
+    .modal-close:hover { color: #fff; background: transparent; border: none; }
+
+    .modal-body {
+      padding: 24px 20px 32px 20px;
+      min-height: 150px;
+      color: var(--c-text-main);
+    }
+
+    .setting-section { margin-bottom: 24px; }
+    .setting-section:last-child { margin-bottom: 0; }
+
+    .setting-title {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #60a5fa;
+      margin: 0 0 12px 0;
+      font-weight: 600;
+    }
+
+    .setting-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .setting-label { display: flex; flex-direction: column; }
+    .setting-desc { font-size: 11px; color: var(--c-text-muted); margin-top: 2px; }
+
+    /* Switches & Ranges */
+    .toggle-switch {
+      position: relative;
+      display: inline-block;
+      width: 44px;
+      height: 24px;
+    }
+
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: rgba(255,255,255,0.1);
+      transition: .4s;
+      border-radius: 24px;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 18px;
+      width: 18px;
+      left: 2px;
+      bottom: 2px;
+      background-color: white;
+      transition: .4s;
+      border-radius: 50%;
+    }
+
+    input:checked + .slider { background-color: var(--c-primary); border-color: var(--c-primary); }
+    input:checked + .slider:before { transform: translateX(20px); }
+
+    .range-wrapper { width: 150px; }
+    input[type=range] { -webkit-appearance: none; width: 100%; background: transparent; border: none; padding: 0; }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      height: 16px;
+      width: 16px;
+      border-radius: 50%;
+      background: var(--c-primary);
+      cursor: pointer;
+      margin-top: -6px;
+    }
+    input[type=range]::-webkit-slider-runnable-track {
+      width: 100%;
+      height: 4px;
+      cursor: pointer;
+      background: rgba(255,255,255,0.1);
+      border-radius: 2px;
+    }
+
+    /* Point Setting Grid */
+    .points-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 8px;
+    }
+
+    .point-group {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .small-input {
+      text-align: center;
+      padding: 6px 4px;
+      font-family: monospace;
+    }
+    
+    .small-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    .small-input::placeholder { color: var(--c-text-muted); opacity: 0.6; }
+
+    /* =========================================
+       9. Loading Overlay
+       ========================================= */
+    .loading-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(8px);
+      z-index: var(--z-loading);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.3s ease, visibility 0.3s;
+    }
+
+    .loading-overlay.active { opacity: 1; visibility: visible; }
+
+    .loading-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background: rgba(11, 18, 32, 0.8);
+      padding: 30px 50px;
+      border-radius: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+    }
+
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid rgba(255, 255, 255, 0.1);
+      border-top-color: var(--c-primary);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 16px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* =========================================
+       10. Media Queries
+       ========================================= */
+    @media (max-width: 900px) {
+      .panel { flex-direction: column; }
+      .right { width: 100%; }
+      .pie-canvas-container { width: 100%; max-width: 400px; margin: 0 auto; }
+    }
+
+    @media (max-width: 500px) {
+      .points-grid { grid-template-columns: repeat(3, 1fr); }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="app">
+    <!-- 头部区域 -->
+    <div class="header">
+      <h1>流量可视化</h1>
+      <div class="controls">
+        <input id="files" type="file" accept=".csv,.cdf,.txt,.json" multiple />
+        <button id="loadDefault" type="button">加载示例数据</button>
+        <button id="settingsBtn" class="icon-btn" type="button" title="设置">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <!-- 左侧：图表与控制 -->
+      <div class="left card">
+        <div class="time-slider-container">
+          <label>时间范围</label>
+          <div class="time-slider" id="timeSlider">
+            <div class="time-slider-track"></div>
+            <div class="time-slider-fill" id="timeSliderFill"></div>
+            <div class="time-slider-handle" id="timeSliderHandle"></div>
+          </div>
+          <div class="time-slider-labels">
+            <div class="time-slider-label active" data-value="1h" style="left:0%">1小时</div>
+            <div class="time-slider-label" data-value="1d" style="left:25%">1天</div>
+            <div class="time-slider-label" data-value="1w" style="left:50%">1周</div>
+            <div class="time-slider-label" data-value="1m" style="left:75%">1月</div>
+            <div class="time-slider-label" data-value="1y" style="left:100%">1年</div>
+          </div>
+        </div>
+
+        <div class="row small">
+          <!-- IP 选择 -->
+          <div class="dropdown-container-primary">
+            <label>IP 选择</label>
+            <div class="custom-select search-select" id="ipSelectWrapper">
+              <div class="select-trigger">
+                <input type="text" id="ipSearchInput" class="trigger-input" value="全部" readonly autocomplete="off">
+                <span class="arrow">▼</span>
+              </div>
+              <div class="select-options" id="ipSelectOptions">
+                <!-- JS 动态生成 -->
+              </div>
+            </div>
+          </div>
+
+          <!-- 协议选择 -->
+          <div class="dropdown-container-secondary">
+            <label>协议</label>
+            <div class="custom-select" id="protoSelectWrapper">
+              <div class="select-trigger" id="protoSelectTrigger">
+                <span class="text">全部</span>
+                <span class="arrow">▼</span>
+              </div>
+              <div class="select-options" id="protoSelectOptions">
+                <!-- JS 动态生成 -->
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="chart-wrap card">
+          <canvas id="lineChart"></canvas>
+        </div>
+
+        <div style="margin-top:8px">
+          <div id="info" style="font-size:13px; color:var(--c-text-muted); white-space:pre-wrap; margin-top:6px">无</div>
+        </div>
+        
+        <div class="footer"></div>
+      </div>
+
+      <!-- 右侧：统计与饼图 -->
+      <div class="right card">
+        <div style="margin-bottom:6px; display:flex; flex-direction:column; gap:6px">
+          <div class="pie-toggle" id="pieToggleWrapper">
+            <button id="showIpPieBtn" type="button">IP 图</button>
+            <button id="showProtoPieBtn" type="button">协议 图</button>
+          </div>
+          <div class="pie-wrap">
+            <div id="ipPieContainer" class="pie-container">
+              <div class="pie-canvas-container">
+                <canvas id="ipPie" class="pie-canvas"></canvas>
+              </div>
+            </div>
+            <div id="protoPieContainer" class="pie-container" style="display:none">
+              <div class="pie-canvas-container">
+                <canvas id="protoPie" class="pie-canvas"></canvas>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="stats" class="stats" aria-live="polite">
+          <div style="font-weight:700; margin-bottom:6px">当前统计</div>
+          <div id="stat-uniqip-row" class="stat-row"><div class="stat-label">活跃 IP 数</div><div id="stat-uniqip" class="stat-value">0</div></div>
+          <div id="stat-topip-row" class="stat-row"><div class="stat-label">流量最多 IP</div><div id="stat-topip" class="stat-value">-</div></div>
+          <div id="stat-topproto-row" class="stat-row"><div class="stat-label">流量最多 协议</div><div id="stat-topproto" class="stat-value">-</div></div>
+          <div class="stat-row"><div class="stat-label">上传总量</div><div id="stat-upload" class="stat-value">0B</div></div>
+          <div class="stat-row"><div class="stat-label">下载总量</div><div id="stat-download" class="stat-value">0B</div></div>
+          <div class="stat-row"><div class="stat-label">总流量</div><div id="stat-total" class="stat-value">0B</div></div>
+          <div class="stat-row"><div class="stat-label">峰值上传</div><div id="stat-peak-up" class="stat-value">0B</div></div>
+          <div class="stat-row"><div class="stat-label">峰值下载</div><div id="stat-peak-down" class="stat-value">0B</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 新增：详细信息列表界面 -->
+    <div class="details-card card">
+      <div class="details-header">
+        <h3 id="detailsTitle">详细数据列表</h3>
+        <div style="font-size: 11px; color: var(--c-text-muted);" id="detailsSubTitle">Top 活跃数据</div>
+      </div>
+      <div class="details-table-container">
+        <table class="details-table" id="detailsTable">
+          <thead>
+            <tr id="detailsTableHead">
+              <!-- JS 动态生成 -->
+            </tr>
+          </thead>
+          <tbody id="detailsTableBody">
+            <!-- JS 动态生成 -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- 设置模态框 -->
+  <div id="settingsModal" class="modal-overlay">
+    <div class="modal-container">
+      <div class="modal-header">
+        <div style="display:flex; align-items:baseline; gap:10px;">
+          <h2>设置</h2>
+          <span id="settingStatus" style="font-size:12px; color:var(--c-success); opacity:0; transition:opacity 0.3s;">已更新</span>
+        </div>
+        <button class="modal-close" id="closeSettings" type="button">&times;</button>
+      </div>
+      
+      <div class="modal-body">
+        <!-- 1. 数据处理 -->
+        <div class="setting-section">
+          <h3 class="setting-title">数据处理</h3>
+          <div class="setting-item">
+            <div class="setting-label">
+              <span>反转上传/下载</span>
+              <span class="setting-desc">交换 In/Out 流量定义，即时生效</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="cfgSwapUpDown">
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="setting-item" style="display:block;">
+          <div class="setting-label" style="margin-bottom:12px">
+            <span>数据分桶数量 (精度)</span>
+            <span class="setting-desc">数量越多曲线越平滑，设为 0 则显示原始记录</span>
+          </div>
+          <div class="points-grid">
+            <div class="point-group">
+              <label>1小时</label>
+              <input type="number" id="cfgPt1h" class="input-text small-input" min="0" max="500">
+            </div>
+            <div class="point-group">
+              <label>1天</label>
+              <input type="number" id="cfgPt1d" class="input-text small-input" min="0" max="500">
+            </div>
+            <div class="point-group">
+              <label>1周</label>
+              <input type="number" id="cfgPt1w" class="input-text small-input" min="0" max="500">
+            </div>
+            <div class="point-group">
+              <label>1月</label>
+              <input type="number" id="cfgPt1m" class="input-text small-input" min="0" max="500">
+            </div>
+            <div class="point-group">
+              <label>1年</label>
+              <input type="number" id="cfgPt1y" class="input-text small-input" min="0" max="500">
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. 图表显示 -->
+        <div class="setting-section">
+          <h3 class="setting-title">图表显示</h3>
+          <div class="setting-item">
+            <div class="setting-label">
+              <span>"其他" 类别合并阈值</span>
+              <span class="setting-desc">其他类别低于 <span id="valOtherThreshold">5</span>% 时将尝试合并</span>
+            </div>
+            <div class="range-wrapper">
+              <input type="range" id="cfgOtherThreshold" min="1" max="20" step="1">
+            </div>
+          </div>
+          
+          <div class="setting-item">
+            <div class="setting-label">
+              <span>默认开启的线条</span>
+            </div>
+            <div style="display:flex; gap:15px; align-items:center;">
+              <label style="display:flex; align-items:center; gap:6px; cursor:pointer; color:inherit;">
+                <input type="checkbox" id="cfgVisUpload"> 上传
+              </label>
+              <label style="display:flex; align-items:center; gap:6px; cursor:pointer; color:inherit;">
+                <input type="checkbox" id="cfgVisDownload"> 下载
+              </label>
+              <label style="display:flex; align-items:center; gap:6px; cursor:pointer; color:inherit;">
+                <input type="checkbox" id="cfgVisTotal"> 总量
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. 数据源 -->
+        <div class="setting-section">
+          <h3 class="setting-title">数据源</h3>
+          <div class="setting-item" style="display:block">
+            <div class="setting-label" style="margin-bottom:8px; display:flex; justify-content:space-between;">
+              <span>自动加载数据 URL</span>
+              <span style="font-size:11px; color:#f59e0b;">* 刷新页面后生效</span>
+            </div>
+            <div style="display:flex; gap:8px; align-items:center; margin-bottom: 8px;">
+               <input type="checkbox" id="cfgAutoLoadEnabled" style="width:auto; margin:0;">
+               <span style="font-size:12px; color:var(--c-text-muted)">启用</span>
+            </div>
+            <input type="text" id="cfgAutoLoadUrl" placeholder="https://example.com/data.json" class="input-text">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 全局加载遮罩 -->
+  <div id="loadingOverlay" class="loading-overlay">
+    <div class="loading-content">
+      <div class="spinner"></div>
+      <div id="loadingText" class="loading-text">处理中...</div>
+    </div>
+  </div>
+</body>
+</html>
+
+
+<script>
+// ======================================================常量定义====================================================================================================
+
+// 默认配置
+const DEFAULT_CONFIG = {
+  swapUpDown: false,           // 是否交换上传/下载
+  otherThreshold: 5,          // 饼图合并阈值 (%)
+  autoLoadUrl: '',            // 自动加载的 URL (空代表不自动加载)
+  autoLoadEnabled: false,       // 是否启用自动加载
+  lineChartVisibility: [true, false, true], // 默认：显示上传(0)，隐藏下载(1)，显示总量(2)
+  bucketCounts: {
+    '1h': 0,
+    '1d': 40,
+    '1w': 40,
+    '1m': 50,
+    '1y': 70 
+  }
+};
+
+// 从 LocalStorage 读取配置，如果没有则使用默认
+let AppConfig = { ...DEFAULT_CONFIG };
+
+try {
+  const saved = localStorage.getItem('traffic_viz_config');
+  if (saved) {
+    AppConfig = { ...DEFAULT_CONFIG, ...JSON.parse(saved) };
+  }
+} catch (e) {
+  console.error('读取配置失败', e);
+}
+
+// 数据字段索引
+const FIELD = {
+  ip: 0, ts: 1,
+  in_total: 2, in_icmp: 3, in_tcp: 4, in_http: 5, in_ftp: 6, in_udp: 7, in_smtp: 8,
+  out_total: 9, out_icmp: 10, out_tcp: 11, out_http: 12, out_ftp: 13, out_udp: 14, out_smtp: 15
+};
+
+// 协议定义
+const PROTOS = [
+  {key: 'icmp', label: 'ICMP', inIdx: FIELD.in_icmp, outIdx: FIELD.out_icmp},
+  {key: 'tcp',  label: 'TCP',  inIdx: FIELD.in_tcp,  outIdx: FIELD.out_tcp},
+  {key: 'http', label: 'HTTP', inIdx: FIELD.in_http, outIdx: FIELD.out_http},
+  {key: 'ftp',  label: 'FTP',  inIdx: FIELD.in_ftp,  outIdx: FIELD.out_ftp},
+  {key: 'udp',  label: 'UDP',  inIdx: FIELD.in_udp,  outIdx: FIELD.out_udp},
+  {key: 'smtp', label: 'SMTP', inIdx: FIELD.in_smtp, outIdx: FIELD.out_smtp}
+];
+
+// 重要流量级别定义
+const IMPORTANT_FLOW_LEVELS = [
+  // K级
+  { value: 10 * 1024, label: '10K', color: 'rgba(255,140,120,0.6)' },
+  { value: 20 * 1024, label: '20K', color: 'rgba(255,180,100,0.6)' },
+  { value: 50 * 1024, label: '50K', color: 'rgba(255,220,80,0.6)' },
+  { value: 100 * 1024, label: '100K', color: 'rgba(255,255,100,0.6)' },
+  { value: 200 * 1024, label: '200K', color: 'rgba(220,255,120,0.6)' },
+  { value: 500 * 1024, label: '500K', color: 'rgba(200,255,150,0.6)' },
+  { value: 1 * 1024 * 1024, label: '1M', color: 'rgba(180,255,100,0.6)' },
+  { value: 2 * 1024 * 1024, label: '2M', color: 'rgba(150,255,120,0.6)' },
+  { value: 5 * 1024 * 1024, label: '5M', color: 'rgba(120,255,150,0.6)' },
+  { value: 10 * 1024 * 1024, label: '10M', color: 'rgba(100,255,180,0.6)' },
+  { value: 20 * 1024 * 1024, label: '20M', color: 'rgba(100,255,200,0.6)' },
+  { value: 50 * 1024 * 1024, label: '50M', color: 'rgba(100,255,255,0.6)' },
+  { value: 100 * 1024 * 1024, label: '100M', color: 'rgba(100,220,255,0.6)' },
+  { value: 200 * 1024 * 1024, label: '200M', color: 'rgba(100,200,255,0.6)' },
+  { value: 500 * 1024 * 1024, label: '500M', color: 'rgba(100,150,255,0.6)' },
+  { value: 1 * 1024 * 1024 * 1024, label: '1G', color: 'rgba(120,100,255,0.6)' },
+  { value: 2 * 1024 * 1024 * 1024, label: '2G', color: 'rgba(150,100,255,0.6)' },
+  { value: 5 * 1024 * 1024 * 1024, label: '5G', color: 'rgba(200,100,255,0.6)' },
+  { value: 10 * 1024 * 1024 * 1024, label: '10G', color: 'rgba(230,100,255,0.6)' },
+  { value: 20 * 1024 * 1024 * 1024, label: '20G', color: 'rgba(255,100,255,0.6)' },
+  { value: 50 * 1024 * 1024 * 1024, label: '50G', color: 'rgba(255,100,200,0.6)' },
+  { value: 100 * 1024 * 1024 * 1024, label: '100G', color: 'rgba(255,100,150,0.6)' },
+  { value: 200 * 1024 * 1024 * 1024, label: '200G', color: 'rgba(255,100,120,0.6)' },
+  { value: 500 * 1024 * 1024 * 1024, label: '500G', color: 'rgba(255,100,100,0.8)' },
+  { value: 1 * 1024 * 1024 * 1024 * 1024, label: '1T', color: 'rgba(255,120,100,0.8)' },
+  { value: 2 * 1024 * 1024 * 1024 * 1024, label: '2T', color: 'rgba(255,100,120,0.8)' },
+  { value: 5 * 1024 * 1024 * 1024 * 1024, label: '5T', color: 'rgba(255,80,140,0.8)' },
+  { value: 10 * 1024 * 1024 * 1024 * 1024, label: '10T', color: 'rgba(255,60,160,0.9)' }
+];
+
+// 协议饼图颜色方案
+const PROTOCOL_COLORS = [
+  'rgba(6,182,212,0.8)', 'rgba(59,130,246,0.8)', 'rgba(139,92,246,0.8)',
+  'rgba(236,72,153,0.8)', 'rgba(249,115,22,0.8)', 'rgba(245,158,11,0.8)',
+  'rgba(16,185,129,0.8)', 'rgba(14,165,233,0.8)', 'rgba(99,102,241,0.8)'
+];
+
+// IP饼图固定颜色池 (20个颜色)
+const IP_COLOR_POOL = [
+  'rgba(6,182,212,0.8)',    // 青色
+  'rgba(59,130,246,0.8)',   // 蓝色
+  'rgba(139,92,246,0.8)',   // 紫色
+  'rgba(236,72,153,0.8)',   // 粉色
+  'rgba(249,115,22,0.8)',   // 橙色
+  'rgba(245,158,11,0.8)',   // 琥珀色
+  'rgba(16,185,129,0.8)',   // 绿色
+  'rgba(14,165,233,0.8)',   // 天蓝色
+  'rgba(99,102,241,0.8)',   // 靛蓝色
+  'rgba(239,68,68,0.8)',    // 红色
+  'rgba(34,197,94,0.8)',    // 亮绿色
+  'rgba(234,179,8,0.8)',    // 黄色
+  'rgba(168,85,247,0.8)',   // 紫罗兰色
+  'rgba(20,184,166,0.8)',   // 蓝绿色
+  'rgba(244,63,94,0.8)',    // 玫瑰色
+  'rgba(120,119,198,0.8)',  // 薰衣草色
+  'rgba(251,146,60,0.8)',   // 橙红色
+  'rgba(56,189,248,0.8)',   // 浅蓝色
+  'rgba(190,242,100,0.8)',  // 黄绿色
+  'rgba(232,121,249,0.8)'   // 紫粉色
+];
+
+const AppState = {
+  rawRecords: [], // 原始记录 {ip, ts, row[]}
+  preprocessedBuckets: {
+    '1h': [],
+    '1d': [],
+    '1w': [],
+    '1m': [],
+    '1y': []
+  }, // 预处理的桶数据，按时间范围分类
+  detectedIntervals: {},
+  currentPointTimestamps: [],
+  currentTimeRange: '1h',
+  isDragging: false,
+  charts: {
+    lineChart: null,
+    ipPie: null,
+    protoPie: null
+  },
+  // 新增：记录当前选中的过滤器值
+  filters: {
+    ip: '',      // 空字符串代表 "全部"
+    proto: 'all' // "all" 代表 "全部"
+  }
+};
+
+// ================================================DOM 元素引用==========================================================================================================
+
+// 输入控件
+const filesInput = document.getElementById('files');
+const loadDefaultBtn = document.getElementById('loadDefault');
+
+// 信息显示
+const infoEl = document.getElementById('info');
+
+// 饼图相关
+const ipPieCanvas = document.getElementById('ipPie');
+const protoPieCanvas = document.getElementById('protoPie');
+const ipPieBtn = document.getElementById('showIpPieBtn');
+const protoPieBtn = document.getElementById('showProtoPieBtn');
+const pieToggleWrapper = document.getElementById('pieToggleWrapper');
+const ipPieContainer = document.getElementById('ipPieContainer');
+const protoPieContainer = document.getElementById('protoPieContainer');
+
+// 时间滑块
+const timeSlider = document.getElementById('timeSlider');
+const timeSliderFill = document.getElementById('timeSliderFill');
+const timeSliderHandle = document.getElementById('timeSliderHandle');
+const timeSliderLabels = document.querySelectorAll('.time-slider-label');
+
+//加载遮罩控制 
+const loadingOverlay = document.getElementById('loadingOverlay');
+const loadingTextEl = document.getElementById('loadingText');
+
+// 下拉菜单与搜索
+
+const ipSearchInput = document.getElementById('ipSearchInput');
+const ipSelectWrapper = document.getElementById('ipSelectWrapper');
+
+// 设置模态框
+const settingsModal = document.getElementById('settingsModal');
+const settingsBtn = document.getElementById('settingsBtn');
+const closeSettingsBtn = document.getElementById('closeSettings');
+const settingStatusEl = document.getElementById('settingStatus');
+
+const elSwap = document.getElementById('cfgSwapUpDown');
+const elThresh = document.getElementById('cfgOtherThreshold');
+const elThreshVal = document.getElementById('valOtherThreshold');
+const elAutoLoad = document.getElementById('cfgAutoLoadEnabled');
+const elAutoUrl = document.getElementById('cfgAutoLoadUrl');
+
+const elVisUp = document.getElementById('cfgVisUpload');
+const elVisDown = document.getElementById('cfgVisDownload');
+const elVisTotal = document.getElementById('cfgVisTotal');
+
+const elPts = {
+  '1h': document.getElementById('cfgPt1h'),
+  '1d': document.getElementById('cfgPt1d'),
+  '1w': document.getElementById('cfgPt1w'),
+  '1m': document.getElementById('cfgPt1m'),
+  '1y': document.getElementById('cfgPt1y')
+};
+
+// =================================================工具函数=========================================================================================================
+
+/**
+ * 自动读取文件 - 简化版本
+ */
+async function autoLoadFiles() {
+  if (!AppConfig.autoLoadEnabled || !AppConfig.autoLoadUrl) return false;
+  
+  // 1. 显示加载
+  await showLoading('自动下载数据中...');
+  
+  try {
+    infoEl.textContent = '正在自动加载配置的 URL...';
+    const filePaths = [AppConfig.autoLoadUrl];
+    
+    for (const filePath of filePaths) {
+      try {
+        infoEl.textContent = `尝试读取: ${filePath}`;
+        const response = await fetch(filePath);
+        
+        if (response.ok) {
+          loadingTextEl.textContent = '正在解析数据...'; // 更新提示
+          await new Promise(r => setTimeout(r, 10)); // 渲染一帧
+
+          const fileName = filePath.split('/').pop() || 'auto_loaded';
+          const fileContent = await response.text();
+          const isJSON = fileName.toLowerCase().endsWith('.json');
+          const mimeType = isJSON ? 'application/json' : 'text/csv';
+          const file = new File([fileContent], fileName, { type: mimeType });
+          
+          AppState.rawRecords = [];
+          AppState.detectedIntervals = {};
+          AppState.preprocessedBuckets = { '1h': [], '1d': [], '1w': [], '1m': [], '1y': [] };
+          
+          const result = await parseFile(file);
+          
+          if (result.isPreprocessed) {
+            AppState.detectedIntervals[result.file] = 'preprocessed';
+          } else if (result.interval) {
+            AppState.detectedIntervals[result.file] = result.interval;
+          }
+          
+          infoEl.textContent = result.message;
+          buildAndRender();
+          return true; // 成功后会在 finally 里隐藏 loading
+        }
+      } catch (error) {
+        console.log(`读取失败 ${filePath}:`, error.message);
+        if (AppConfig.autoLoadEnabled) {
+             infoEl.textContent = `自动加载失败: ${error.message}，请检查设置`;
+        }
+        continue;
+      }
+    }
+    
+    infoEl.textContent = '自动读取失败';
+    return false;
+  } finally {
+    // 2. 隐藏加载
+    hideLoading();
+  }
+}
+
+/**
+ * 为IP列表分配颜色，确保相邻IP不使用相同颜色
+ */
+function assignColorsToIPs(ipList) {
+  if (ipList.length === 0) return [];
+  
+  const colors = [];
+  const usedColorIndices = new Set();
+
+  // 内联哈希函数
+  const getColorIndex = (ip) => {
+    let hash = 0;
+    for (let i = 0; i < ip.length; i++) {
+      const char = ip.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // 转换为32位整数
+    }
+    return Math.abs(hash) % IP_COLOR_POOL.length;
+  };
+
+  for (let i = 0; i < ipList.length; i++) {
+    const ip = ipList[i];
+
+    if (ip === '其他') {
+      // "其他"类别使用固定的灰色
+      colors.push('rgba(156, 163, 175, 0.8)');
+      continue;
+    }
+
+    // 获取IP的基础颜色索引（直接用内联函数）
+    const baseColorIndex = getColorIndex(ip);
+
+    if (i === 0 || colors[i - 1] !== IP_COLOR_POOL[baseColorIndex]) {
+      colors.push(IP_COLOR_POOL[baseColorIndex]);
+      usedColorIndices.add(baseColorIndex);
+    } else {
+      // 如果与前一个IP颜色相同，找一个不同的颜色
+      let newColorIndex = (baseColorIndex + 1) % IP_COLOR_POOL.length;
+      let attempts = 0;
+
+      while (colors[i - 1] === IP_COLOR_POOL[newColorIndex] && attempts < IP_COLOR_POOL.length) {
+        newColorIndex = (newColorIndex + 1) % IP_COLOR_POOL.length;
+        attempts++;
+      }
+
+      colors.push(IP_COLOR_POOL[newColorIndex]);
+      usedColorIndices.add(newColorIndex);
+    }
+  }
+
+  return colors;
+}
+
+/**
+ * 格式化字节数为可读字符串
+ */
+function formatBytes(v) {
+  if (v === 0) return '0B';
+  const abs = Math.abs(v || 0);
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let u = 0, val = abs;
+  while (val >= 1024 && u < units.length - 1) {
+    val /= 1024;
+    u++;
+  }
+  return (v < 0 ? '-' : '') + val.toFixed(2) + units[u];
+}
+
+/**
+ * 格式化时间标签
+ */
+function formatTimeLabel(ts, to, range) {
+  const delta = to - ts;
+  switch (range) {
+    case '1h': 
+      const m = Math.round(delta / 60);
+      return m === 0 ? '现在' : `${m}m 前`;
+    case '1d':
+      const h = Math.round(delta / 3600);
+      return `${h}h 前`;
+    case '1w':
+      const d = Math.round(delta / 86400);
+      return `${d}d 前`;
+    case '1m':
+      // 修改：从 "周" 改为 "天"
+      const dMonth = Math.round(delta / 86400);
+      return `${dMonth}d 前`;
+    case '1y':
+      const mo = Math.round(delta / (86400 * 30));
+      return `${mo}月前`;
+    default:
+      return new Date(ts * 1000).toLocaleString();
+  }
+}
+
+/**
+ * 格式化工具提示时间
+ */
+function formatTooltipTime(ts, range) {
+  if (!ts) return '';
+  const d = new Date(ts * 1000);
+  if (range === '1h' || range === '1d') {
+    return d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+  }
+  if (range === '1w') {
+    return d.toLocaleString([], {year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit'});
+  }
+  return d.toLocaleDateString();
+}
+
+/**
+ * 获取时间范围对应的秒数
+ */
+function secondsForRange(range) {
+  const ranges = {
+    '1h': 3600,
+    '1d': 86400,
+    '1w': 86400 * 7,
+    '1m': 86400 * 30,
+    '1y': 86400 * 365
+  };
+  return ranges[range] || 3600;
+}
+
+/**
+ * 获取时间范围对应的数据间隔 (动态计算)
+ * 返回秒数。如果返回 0，代表原始数据模式。
+ */
+function chooseIntervalForRange(range) {
+  // 获取配置中的点数
+  const counts = AppConfig.bucketCounts || DEFAULT_CONFIG.bucketCounts;
+  const count = counts[range];
+  
+  // 如果用户设为0，直接返回0 (触发稀疏模式)
+  if (!count || count <= 0) return 0;
+  
+  const totalSeconds = secondsForRange(range);
+  // 计算间隔 = 总时长 / 点数
+  return Math.floor(totalSeconds / count);
+}
+
+/**
+ * 响应式缩放饼图容器
+ * 动态计算比例，确保 400px 的图表能塞进更窄的容器中
+ */
+function initResponsivePieScaling() {
+  const pieWrap = document.querySelector('.pie-wrap');
+  const containers = document.querySelectorAll('.pie-canvas-container');
+  const BASE_WIDTH = 400;  // 图表的原始设计宽度
+  const BASE_HEIGHT = 250; // 图表的原始设计高度
+
+  if (!pieWrap || containers.length === 0) return;
+
+  const observer = new ResizeObserver(entries => {
+    for (const entry of entries) {
+      // 获取父容器当前的可用宽度
+      const availableWidth = entry.contentRect.width;
+      
+      // 如果容器宽度小于图表基准宽度，开始缩放
+      if (availableWidth > 0 && availableWidth < BASE_WIDTH) {
+        // 计算缩放比例 (例如: 360 / 400 = 0.9)
+        const scale = availableWidth / BASE_WIDTH;
+        
+        // 计算缩放后产生的底部留白，需要通过负 margin 抵消
+        // 原理: 元素虽然视觉变小了，但在文档流中还是占 250px 高
+        const marginBottom = -(BASE_HEIGHT * (1 - scale));
+
+        containers.forEach(el => {
+          el.style.transform = `scale(${scale})`;
+          el.style.marginBottom = `${marginBottom}px`; // 消除底部空白
+        });
+      } else {
+        // 宽度足够时，复原
+        containers.forEach(el => {
+          el.style.transform = '';
+          el.style.marginBottom = '';
+        });
+      }
+    }
+  });
+
+  // 开始监听父容器的尺寸变化
+  observer.observe(pieWrap);
+}
+
+/**
+ * 显示加载遮罩 (支持异步等待渲染)
+ */
+function showLoading(msg = '处理中...') {
+  loadingTextEl.textContent = msg;
+  loadingOverlay.classList.add('active');
+  // 返回一个 Promise，延迟 50ms 让浏览器有机会渲染 CSS 动画
+  return new Promise(resolve => setTimeout(resolve, 50));
+}
+
+function hideLoading() {
+  loadingOverlay.classList.remove('active');
+}
+
+// =================== 下拉菜单与搜索逻辑 ===================
+
+/**
+ * 切换下拉菜单状态
+ */
+function toggleSelect(wrapperId, forceState) {
+  // 1. 先关闭所有【非当前ID】的菜单
+  // 即使 wrapperId 是 'dummy'，因为没有元素的 id 是 'dummy'，所以所有菜单都会被匹配并关闭
+  document.querySelectorAll('.custom-select').forEach(el => {
+    if (el.id !== wrapperId) {
+      el.classList.remove('open');
+      // 如果是带搜索的，关闭时重置 input 状态
+      const otherInput = el.querySelector('input');
+      if (otherInput) {
+        otherInput.readOnly = true;
+        restoreInputValue(el.id); // 恢复为当前选中的值（清除搜索词）
+      }
+    }
+  });
+
+  // 2. 获取当前要操作的容器
+  const wrapper = document.getElementById(wrapperId);
+  
+  // 【修复关键点】：如果 wrapper 不存在（例如传入了 'dummy'），则任务完成（只为了关闭其他的），直接退出
+  if (!wrapper) return;
+
+  // 3. 正常执行当前菜单的切换逻辑
+  const input = wrapper.querySelector('input'); 
+  const currentState = wrapper.classList.contains('open');
+  const newState = forceState !== undefined ? forceState : !currentState;
+
+  if (newState) {
+    wrapper.classList.add('open');
+    if (input) {
+      input.readOnly = false; // 允许编辑
+      input.select(); // 全选文字
+      input.focus();
+    }
+  } else {
+    wrapper.classList.remove('open');
+    if (input) {
+      input.readOnly = true; // 恢复只读
+      input.blur();
+      // 延迟一下恢复显示值，防止视觉跳变
+      setTimeout(() => restoreInputValue(wrapperId), 100);
+    }
+  }
+}
+
+/**
+ * 恢复 Input 显示为当前选中的 Label (用于关闭搜索时复原)
+ */
+function restoreInputValue(wrapperId) {
+  if (wrapperId === 'ipSelectWrapper') {
+    // 根据当前 AppState 查找对应的 Label
+    const currentIp = AppState.filters.ip;
+    // 如果是空字符串，显示“全部”，否则显示 IP
+    ipSearchInput.value = currentIp || '全部';
+    
+    // 恢复所有选项的显示（取消过滤）
+    const options = document.getElementById('ipSelectOptions').children;
+    for (let opt of options) opt.style.display = '';
+  }
+}
+
+/**
+ * 设置下拉菜单的值
+ */
+function setSelectValue(type, value, label) {
+  AppState.filters[type] = value;
+  
+  if (type === 'ip') {
+    // IP 特殊处理：更新 Input 的值
+    ipSearchInput.value = label || value || '全部';
+    toggleSelect('ipSelectWrapper', false); // 关闭菜单
+  } else {
+    // 协议普通处理：更新 Span 文本
+    const triggerText = document.getElementById(`${type}SelectTrigger`).querySelector('.text');
+    triggerText.textContent = label || value || '全部';
+    toggleSelect('protoSelectWrapper', false);
+  }
+  
+  // 触发渲染
+  buildAndRender();
+}
+
+/**
+ * IP 搜索过滤逻辑
+ */
+ipSearchInput.addEventListener('input', (e) => {
+  const term = e.target.value.toLowerCase().trim();
+  const optionsContainer = document.getElementById('ipSelectOptions');
+  const options = Array.from(optionsContainer.children);
+  let hasVisible = false;
+
+  options.forEach(opt => {
+    // 跳过 "无结果" 的提示项
+    if (opt.classList.contains('no-results')) return;
+
+    // 获取选项的文本 (IP)
+    const text = opt.querySelector('span:first-child').textContent.toLowerCase();
+    
+    // 匹配逻辑：包含搜索词
+    if (text.includes(term) || term === '') {
+      opt.style.display = '';
+      hasVisible = true;
+    } else {
+      opt.style.display = 'none';
+    }
+  });
+
+  // 处理无结果提示
+  let noResultEl = optionsContainer.querySelector('.no-results');
+  if (!hasVisible) {
+    if (!noResultEl) {
+      noResultEl = document.createElement('div');
+      noResultEl.className = 'no-results';
+      noResultEl.textContent = '未找到匹配的 IP';
+      optionsContainer.appendChild(noResultEl);
+    }
+  } else {
+    if (noResultEl) noResultEl.remove();
+  }
+});
+
+// 点击外部关闭
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.custom-select')) {
+    // 关闭所有菜单，并触发 restore
+    toggleSelect('dummy', false); // 传入假ID会关闭所有真ID
+  }
+});
+
+// 绑定触发器点击
+document.getElementById('ipSelectWrapper').addEventListener('click', (e) => {
+  e.stopPropagation();
+  // 如果已经打开且点击的是 input 本身（正在打字），不要切换关闭
+  if (ipSelectWrapper.classList.contains('open') && e.target === ipSearchInput) {
+    return;
+  }
+  toggleSelect('ipSelectWrapper');
+});
+
+document.getElementById('protoSelectTrigger').addEventListener('click', (e) => {
+  e.stopPropagation();
+  toggleSelect('protoSelectWrapper');
+});
+
+/**
+ * 动态更新下拉菜单选项
+ */
+function updateDropdownOptions(range) {
+  const availableData = getFilteredDataFromBuckets(range, 'all', '');
+  const { ipAgg, protoAgg } = availableData;
+  
+  // === 更新 IP 列表 ===
+  const ipContainer = document.getElementById('ipSelectOptions');
+  ipContainer.innerHTML = '';
+  
+  // 添加 "全部" 选项
+  const allIpDiv = document.createElement('div');
+  allIpDiv.className = `option-item ${AppState.filters.ip === '' ? 'selected' : ''}`;
+  allIpDiv.innerHTML = `<span>全部</span><span class="option-meta">${ipAgg.size} 个活跃</span>`;
+  
+  // 【修复点 1】: 传入事件对象 e，并阻止冒泡
+  allIpDiv.onclick = (e) => {
+    e.stopPropagation(); // <--- 关键：阻止事件传给父容器
+    setSelectValue('ip', '', '全部');
+  };
+  ipContainer.appendChild(allIpDiv);
+  
+  const sortedIps = Array.from(ipAgg.entries()).sort((a, b) => b[1] - a[1]);
+  let currentIpIsValid = (AppState.filters.ip === '');
+  
+  sortedIps.forEach(([ip, traffic]) => {
+    if (ip === '0.0.0.0') return;
+    if (ip === AppState.filters.ip) currentIpIsValid = true;
+    
+    const div = document.createElement('div');
+    div.className = `option-item ${AppState.filters.ip === ip ? 'selected' : ''}`;
+    div.innerHTML = `<span>${ip}</span><span class="option-meta">${formatBytes(traffic)}</span>`;
+    
+    // 【修复点 2】: 传入事件对象 e，并阻止冒泡
+    div.onclick = (e) => {
+      e.stopPropagation(); // <--- 关键
+      setSelectValue('ip', ip, ip);
+    };
+    ipContainer.appendChild(div);
+  });
+  
+  if (!currentIpIsValid) {
+     AppState.filters.ip = '';
+     ipSearchInput.value = '全部';
+  } else {
+     ipSearchInput.value = AppState.filters.ip || '全部';
+  }
+
+  // === 更新 协议 列表 ===
+  const protoContainer = document.getElementById('protoSelectOptions');
+  protoContainer.innerHTML = '';
+  
+  const allProtoDiv = document.createElement('div');
+  allProtoDiv.className = `option-item ${AppState.filters.proto === 'all' ? 'selected' : ''}`;
+  allProtoDiv.innerHTML = `<span>全部</span>`;
+  
+  // 【修复点 3】: 协议列表也加上，防止以后出同样问题
+  allProtoDiv.onclick = (e) => {
+    e.stopPropagation(); 
+    setSelectValue('proto', 'all', '全部');
+  };
+  protoContainer.appendChild(allProtoDiv);
+  
+  let currentProtoIsValid = (AppState.filters.proto === 'all');
+  
+  PROTOS.forEach(p => {
+    const traffic = protoAgg.get(p.key) || 0;
+    if (traffic > 0 || AppState.filters.proto === p.key) {
+      if (AppState.filters.proto === p.key) currentProtoIsValid = true;
+      const div = document.createElement('div');
+      div.className = `option-item ${AppState.filters.proto === p.key ? 'selected' : ''}`;
+      div.innerHTML = `<span>${p.label}</span><span class="option-meta">${formatBytes(traffic)}</span>`;
+      
+      // 【修复点 4】: 传入事件对象 e，并阻止冒泡
+      div.onclick = (e) => {
+        e.stopPropagation();
+        setSelectValue('proto', p.key, p.label);
+      };
+      protoContainer.appendChild(div);
+    }
+  });
+  
+  if (!currentProtoIsValid) {
+    AppState.filters.proto = 'all';
+    document.getElementById('protoSelectTrigger').querySelector('.text').textContent = '全部';
+  }
+}
+// ================================================== 设置模态框逻辑 (实时保存版) ==========================================================================================
+
+// 显示"已保存"提示
+let statusTimeout;
+function showSavedStatus() {
+  settingStatusEl.style.opacity = '1';
+  clearTimeout(statusTimeout);
+  statusTimeout = setTimeout(() => {
+    settingStatusEl.style.opacity = '0';
+  }, 1500);
+}
+
+// 通用绑定函数 
+function bindSetting(element, configKey, eventType, valueParser, callback) {
+  element.addEventListener(eventType, () => {
+    // 1. 获取新值
+    const rawValue = (element.type === 'checkbox') ? element.checked : element.value;
+    const newValue = valueParser ? valueParser(rawValue) : rawValue;
+
+    // 2. 如果值没变，什么都不做 (防止无效触发)
+    if (AppConfig[configKey] === newValue) return;
+
+    // 3. 更新全局配置 & 本地存储
+    AppConfig[configKey] = newValue;
+    localStorage.setItem('traffic_viz_config', JSON.stringify(AppConfig));
+
+    // 4. UI 反馈
+    showSavedStatus();
+
+    // 5. 执行回调 (如重绘图表)
+    if (callback) callback(newValue);
+  });
+}
+
+// --- 1. 绑定：上传/下载反转 (change 事件) ---
+bindSetting(elSwap, 'swapUpDown', 'change', null, () => {
+  // 回调：立即重新计算并渲染
+  // 因为 updateDropdownOptions 依赖反转逻辑来显示流量大小，所以也要更新
+  updateDropdownOptions(AppState.currentTimeRange); 
+  buildAndRender();
+});
+
+// --- 2. 绑定：阈值滑块 ---
+elThresh.addEventListener('input', (e) => {
+  elThreshVal.textContent = e.target.value;
+});
+
+bindSetting(elThresh, 'otherThreshold', 'change', (v) => parseInt(v, 10), () => {
+  // 回调：立即重绘
+  buildAndRender();
+});
+
+// --- 3. 绑定：自动加载 (不需要回调，仅保存) ---
+bindSetting(elAutoLoad, 'autoLoadEnabled', 'change', null, null);
+bindSetting(elAutoUrl, 'autoLoadUrl', 'input', (v) => v.trim(), null);
+
+// === 新增：绑定图表可见性 (数组特殊处理) ===
+function bindVisibilityCheckbox(element, index) {
+  element.addEventListener('change', () => {
+    // 1. 读取当前配置数组 (复制一份以免引用修改)
+    const newVis = [...(AppConfig.lineChartVisibility || [true, false, true])];
+    // 2. 更新对应索引
+    newVis[index] = element.checked;
+    
+    // 3. 写入配置
+    AppConfig.lineChartVisibility = newVis;
+    localStorage.setItem('traffic_viz_config', JSON.stringify(AppConfig));
+    
+    // 4. 反馈 & 立即重绘
+    showSavedStatus();
+    buildAndRender();
+  });
+}
+
+bindVisibilityCheckbox(elVisUp, 0);    // Upload
+bindVisibilityCheckbox(elVisDown, 1);  // Download
+bindVisibilityCheckbox(elVisTotal, 2); // Total
+
+// === 新增：绑定数据点设置 (支持默认值回退) ===
+function bindPointInput(range) {
+  const el = elPts[range];
+  if (!el) return;
+
+  // 1. 初始化时，设置 placeholder 为默认值
+  // 这样即使用户清空了，也能看到灰色的默认推荐值
+  el.placeholder = DEFAULT_CONFIG.bucketCounts[range];
+
+  el.addEventListener('change', async () => {
+    let val;
+    
+    // === 关键逻辑修改 ===
+    if (el.value.trim() === '') {
+      // 情况A: 用户删光了数据 -> 恢复默认值
+      val = DEFAULT_CONFIG.bucketCounts[range];
+    } else {
+      // 情况B: 用户输入了数值 (包括 0)
+      val = parseInt(el.value, 10);
+      if (isNaN(val) || val < 0) val = 0;
+    }
+    
+    // 1. 更新配置
+    const newCounts = { ...AppConfig.bucketCounts };
+    // 只有当值真的变了才执行后续操作
+    if (newCounts[range] === val) return; 
+    
+    newCounts[range] = val;
+    AppConfig.bucketCounts = newCounts;
+    localStorage.setItem('traffic_viz_config', JSON.stringify(AppConfig));
+    
+    // 2. UI 反馈
+    showSavedStatus();
+    
+    // 3. 重新预处理数据
+    const oldCursor = document.body.style.cursor;
+    el.disabled = true;
+    document.body.style.cursor = 'wait';
+    
+    await new Promise(r => setTimeout(r, 20));
+    
+    preprocessAllData();
+    
+    if (AppState.currentTimeRange === range) {
+      updateDropdownOptions(range);
+      buildAndRender();
+    }
+    
+    el.disabled = false;
+    document.body.style.cursor = oldCursor;
+    
+    // 4. 输入框状态修正：
+    // 如果用户输入的值等于默认值，保存完后清空输入框，显示灰色 placeholder
+    // 这样交互感更强，告诉用户“你现在用的是默认配置”
+    if (val === DEFAULT_CONFIG.bucketCounts[range]) {
+      el.value = '';
+    }
+  });
+}
+
+// 循环绑定
+['1h', '1d', '1w', '1m', '1y'].forEach(range => bindPointInput(range));
+
+// --- 修改 openSettings 回显逻辑 ---
+function openSettings() {
+  settingsModal.classList.add('active');
+  
+  // 原有回显逻辑...
+  elSwap.checked = AppConfig.swapUpDown;
+  elThresh.value = AppConfig.otherThreshold;
+  elThreshVal.textContent = AppConfig.otherThreshold;
+  elAutoLoad.checked = AppConfig.autoLoadEnabled;
+  elAutoUrl.value = AppConfig.autoLoadUrl;
+
+  const vis = AppConfig.lineChartVisibility || [true, false, true];
+  elVisUp.checked = vis[0];
+  elVisDown.checked = vis[1];
+  elVisTotal.checked = vis[2];
+
+  // === 修改：数据点输入框回显 ===
+  const counts = AppConfig.bucketCounts || DEFAULT_CONFIG.bucketCounts;
+  const defaults = DEFAULT_CONFIG.bucketCounts;
+
+  ['1h', '1d', '1w', '1m', '1y'].forEach(range => {
+    const el = elPts[range];
+    if (el) {
+      // 确保 placeholder 始终正确 (防止 DEFAULT_CONFIG 以后变了)
+      el.placeholder = defaults[range];
+      
+      const currentVal = counts[range];
+      const defaultVal = defaults[range];
+
+      // 如果当前值等于默认值，置空 (显示灰色 placeholder)
+      // 否则显示实际数值 (黑色/白色文字)
+      if (currentVal === defaultVal) {
+        el.value = '';
+      } else {
+        el.value = currentVal;
+      }
+    }
+  });
+}
+
+// openSettings 回显逻辑
+function openSettings() {
+  settingsModal.classList.add('active');
+  
+  elSwap.checked = AppConfig.swapUpDown;
+  elThresh.value = AppConfig.otherThreshold;
+  elThreshVal.textContent = AppConfig.otherThreshold;
+  elAutoLoad.checked = AppConfig.autoLoadEnabled;
+  elAutoUrl.value = AppConfig.autoLoadUrl;
+
+  // === 新增回显 ===
+  // 确保配置存在，默认为 [true, false, true]
+  const vis = AppConfig.lineChartVisibility || [true, false, true];
+  elVisUp.checked = vis[0];
+  elVisDown.checked = vis[1];
+  elVisTotal.checked = vis[2];
+}
+
+function closeSettings() {
+  settingsModal.classList.remove('active');
+}
+
+// 事件监听
+settingsBtn.addEventListener('click', openSettings);
+closeSettingsBtn.addEventListener('click', closeSettings);
+
+// 点击遮罩层关闭
+settingsModal.addEventListener('click', (e) => {
+  if (e.target === settingsModal) closeSettings();
+});
+
+// ESC 键关闭
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && settingsModal.classList.contains('active')) closeSettings();
+});
+
+// =============================================数据处理函数=============================================================================================================
+
+/**
+ * 解析文件 - 自动检测预处理数据或原始CSV数据，并完全处理数据加载
+ */
+function parseFile(file) {
+  return new Promise(resolve => {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const fileContent = e.target.result;
+      
+      // 尝试解析为JSON（预处理数据）
+      try {
+        const jsonData = JSON.parse(fileContent);
+        
+        // 检查是否为预处理数据格式
+        if (jsonData.ranges && 
+            jsonData.ranges['1h'] && 
+            jsonData.ranges['1d'] && 
+            jsonData.ranges['1w'] && 
+            jsonData.ranges['1m'] && 
+            jsonData.ranges['1y']) {
+          
+          console.log(`检测到预处理数据文件: ${file.name}`);
+          
+          // 直接处理预处理数据
+          importPreprocessedData(jsonData);
+          
+          resolve({
+            file: file.name,
+            isPreprocessed: true,
+            recordCount: 0, // 预处理数据没有原始记录
+            message: `已加载预处理数据: ${file.name}`
+          });
+          return;
+        }
+      } catch (e) {
+        // 不是JSON格式，继续按CSV处理
+        console.log(`文件 ${file.name} 不是预处理数据格式，按CSV处理`);
+      }
+      
+      // 按原始CSV文件处理
+      let text = fileContent;
+      
+      // 统一换行符
+      text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      text = text.replace(/\n+$/, '');
+      
+      Papa.parse(text, {
+        dynamicTyping: true,
+        skipEmptyLines: true,
+        complete: res => {
+          const rows = [];
+          const timestamps = [];
+          let validRows = 0;
+          
+          res.data.forEach(r => {
+            if (!r || r.length < 2) return;
+            
+            const maybeTs = Number(r[1]);
+            if (isNaN(maybeTs) || maybeTs <= 0) return;
+            
+            // 确保行有足够的列
+            while (r.length < 16) r.push(0);
+            
+            timestamps.push(maybeTs);
+            rows.push(r);
+            validRows++;
+          });
+          
+          console.log(`解析CSV文件 ${file.name}: 总行数 ${res.data.length}, 有效行数 ${validRows}`);
+          
+          // 添加解析后的记录到全局状态
+          rows.forEach(r => AppState.rawRecords.push({
+            ip: String(r[FIELD.ip]),
+            ts: Number(r[FIELD.ts]),
+            row: r
+          }));
+          
+          // 预处理数据
+          preprocessAllData();
+          
+          resolve({
+            file: file.name,
+            isPreprocessed: false,
+            recordCount: validRows,
+          });
+        },
+        error: function(err) {
+          console.error('解析错误:', err);
+          resolve({
+            file: file.name, 
+            isPreprocessed: false,
+            recordCount: 0,
+            interval: null,
+            message: `解析失败: ${err.message}`
+          });
+        }
+      });
+    };
+    reader.onerror = function() {
+      console.error('文件读取错误');
+      resolve({
+        file: file.name, 
+        isPreprocessed: false,
+        recordCount: 0,
+        interval: null,
+        message: '文件读取错误'
+      });
+    };
+    reader.readAsText(file, 'UTF-8');
+  });
+}
+
+/**
+ * 导入预处理数据 - 支持紧凑格式 (已适配新的 inBytes/outBytes 结构)
+ */
+function importPreprocessedData(importData) {
+  try {
+    console.log('开始导入预处理数据...');
+    
+    if (!importData || !importData.ranges) {
+      console.error('❌ 导入数据格式错误：缺少ranges字段');
+      return false;
+    }
+    
+    // 初始化预处理桶
+    AppState.preprocessedBuckets = {
+      '1h': [], '1d': [], '1w': [], '1m': [], '1y': []
+    };
+    
+    const ranges = ['1h', '1d', '1w', '1m', '1y'];
+    let totalImportedBuckets = 0;
+    
+    ranges.forEach(range => {
+      if (importData.ranges[range] && Array.isArray(importData.ranges[range].buckets)) {
+        const importedBuckets = importData.ranges[range].buckets.map(bucketData => {
+          const bucket = {
+            ts: bucketData.ts || bucketData.timestamp,
+            data: new Map()
+          };
+          
+          const dataField = bucketData.d || bucketData.data;
+          if (dataField && typeof dataField === 'object') {
+            for (const [ip, ipData] of Object.entries(dataField)) {
+              const protocolsMap = new Map();
+              
+              // === 关键修改：映射 JSON 的 upload/download 到内存的 outBytes/inBytes ===
+              // 假设 JSON 数据源的标准定义是: Upload = Out, Download = In
+              
+              if (Array.isArray(ipData)) {
+                // 紧凑格式: [upload, download, proto1_up, proto1_down, ...]
+                const upload = ipData[0] || 0;
+                const download = ipData[1] || 0;
+                
+                for (let p = 0; p < PROTOS.length; p++) {
+                  const protoIndex = 2 + p * 2;
+                  if (protoIndex < ipData.length) {
+                    protocolsMap.set(PROTOS[p].key, {
+                      // 映射协议数据
+                      out: ipData[protoIndex] || 0,      // upload -> out
+                      in: ipData[protoIndex + 1] || 0    // download -> in
+                    });
+                  }
+                }
+                
+                bucket.data.set(ip, {
+                  outBytes: upload,   // upload -> outBytes
+                  inBytes: download,  // download -> inBytes
+                  protocols: protocolsMap
+                });
+
+              } else if (typeof ipData === 'object') {
+                // 旧格式对象
+                if (ipData.protocols) {
+                  for (const [proto, protoData] of Object.entries(ipData.protocols)) {
+                    protocolsMap.set(proto, {
+                      out: protoData.upload || 0,
+                      in: protoData.download || 0
+                    });
+                  }
+                }
+                
+                bucket.data.set(ip, {
+                  outBytes: ipData.upload || 0,
+                  inBytes: ipData.download || 0,
+                  protocols: protocolsMap
+                });
+              }
+            }
+          }
+          return bucket;
+        });
+        
+        AppState.preprocessedBuckets[range] = importedBuckets;
+        totalImportedBuckets += importedBuckets.length;
+      } else {
+        AppState.preprocessedBuckets[range] = [];
+      }
+    });
+    
+    console.log(`🎉 导入完成！共导入 ${totalImportedBuckets} 个桶`);
+    AppState.rawRecords = []; // 清空原始数据
+    return true;
+    
+  } catch (error) {
+    console.error('❌ 导入过程中发生错误:', error);
+    return false;
+  }
+}
+
+/**
+ * 预处理所有数据 - 核心逻辑修正版
+ */
+function preprocessAllData() {
+  // 如果没有原始数据，初始化为空数组
+  if (!AppState.rawRecords || AppState.rawRecords.length === 0) {
+    Object.keys(AppState.preprocessedBuckets).forEach(range => {
+      AppState.preprocessedBuckets[range] = [];
+    });
+    return;
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const rangeKeys = Object.keys(AppState.preprocessedBuckets); // 例如 ['1h', '1d', '1w'...]
+
+  rangeKeys.forEach(range => {
+    const rangeSec = secondsForRange(range);       // 获取时间范围总秒数
+    const bucketSec = chooseIntervalForRange(range); // 获取分桶间隔 (0 代表原始数据模式)
+    const from = now - rangeSec;                   // 统一对齐：起始时间 = 当前 - 范围
+
+    // === 模式 A: 原始数据模式 (Interval === 0) ===
+    // 逻辑：稀疏填充 (只存有数据的点) + 按时间排序
+    if (bucketSec <= 0) {
+      const rawMap = new Map(); // 用于按时间戳聚合: timestamp -> bucket
+
+      AppState.rawRecords.forEach(r => {
+        if (r.ts < from || r.ts > now) return;
+
+        // 获取或创建桶
+        if (!rawMap.has(r.ts)) {
+          rawMap.set(r.ts, { ts: r.ts, data: new Map() });
+        }
+        const bucket = rawMap.get(r.ts);
+        
+        // 累加数据
+        accumulateRecordToBucket(bucket, r);
+      });
+
+      // 转为数组并按时间升序排序 (JS Map 不保证顺序，必须显式排序)
+      AppState.preprocessedBuckets[range] = Array.from(rawMap.values())
+        .sort((a, b) => a.ts - b.ts);
+    } 
+    
+    // === 模式 B: 稠密分桶模式 (Interval > 0) ===
+    // 逻辑：预先生成所有桶 (填充 0) + 索引定位
+    else {
+      const bucketCount = Math.max(1, Math.ceil(rangeSec / bucketSec));
+      const buckets = new Array(bucketCount);
+
+      // 1. 预填充：生成连续的时间轴 (Dense Filling)
+      for (let i = 0; i < bucketCount; i++) {
+        buckets[i] = {
+          ts: from + i * bucketSec,
+          data: new Map() // 初始化为空 Map，后续 export 时若为空会自动处理
+        };
+      }
+
+      // 2. 填入数据：萝卜坑法
+      AppState.rawRecords.forEach(r => {
+        if (r.ts < from || r.ts > now) return;
+
+        // 计算该记录属于哪个桶的下标
+        const idx = Math.floor((r.ts - from) / bucketSec);
+        
+        // 边界检查，确保落入桶内
+        if (idx >= 0 && idx < bucketCount) {
+          accumulateRecordToBucket(buckets[idx], r);
+        }
+      });
+
+      AppState.preprocessedBuckets[range] = buckets;
+    }
+  });
+
+  console.log(`预处理完成 (In/Out 映射已修正，支持稠密/稀疏混合模式)`);
+}
+
+/**
+ * 内部辅助函数：累加单条记录到 Bucket
+ */
+function accumulateRecordToBucket(bucket, r) {
+  const ip = r.ip;
+  let ipData = bucket.data.get(ip);
+
+  if (!ipData) {
+    ipData = {
+      outBytes: 0, // 对应前端数组 Index 0
+      inBytes: 0,  // 对应前端数组 Index 1
+      protocols: new Map()
+    };
+    bucket.data.set(ip, ipData);
+  }
+
+  // 累加基础流量 (不交换方向)
+  ipData.outBytes += Number(r.row[FIELD.out_total] || 0);
+  ipData.inBytes  += Number(r.row[FIELD.in_total] || 0);
+
+  // 累加协议流量
+  PROTOS.forEach(proto => {
+    // 同样不交换方向
+    const valIn = Number(r.row[proto.inIdx] || 0);
+    const valOut = Number(r.row[proto.outIdx] || 0);
+
+    let pData = ipData.protocols.get(proto.key);
+    if (!pData) {
+      pData = { in: 0, out: 0 };
+      ipData.protocols.set(proto.key, pData);
+    }
+    
+    pData.out += valOut;
+    pData.in  += valIn;
+  });
+}
+
+/**
+ * 从预处理桶中获取过滤后的数据 (在此处处理 上传/下载 语义交换)
+ */
+function getFilteredDataFromBuckets(range, protoFilter, ipFilter) {
+  const rangeSec = secondsForRange(range);
+  const to = Math.floor(Date.now() / 1000);
+  const from = to - rangeSec;
+  
+  const preBuckets = AppState.preprocessedBuckets[range] || [];
+  
+  const buckets = preBuckets.map(preBucket => ({
+    ts: preBucket.ts,
+    upload: 0,
+    download: 0,
+    perIp: new Map(),
+    perProto: new Map()
+  }));
+
+  // 新增：用于详细表格展示的聚合数据 Map<IP, {up, down, total, protoDetails: Map<Proto, {up, down}>}>
+  const ipDetailedAgg = new Map();
+
+  const isSwapped = AppConfig.swapUpDown;
+
+  preBuckets.forEach((preBucket, idx) => {
+    const finalBucket = buckets[idx];
+    
+    for (const [ip, ipData] of preBucket.data.entries()) {
+      if (!ipFilter && ip === '0.0.0.0') continue;
+      if (ipFilter && ip !== ipFilter) continue;
+      
+      const rawProtos = {};
+      PROTOS.forEach(p => {
+        const pData = ipData.protocols.get(p.key);
+        rawProtos[p.key] = pData ? { in: pData.in, out: pData.out } : { in: 0, out: 0 };
+      });
+
+      const tcpOtherIn = Math.max(0, rawProtos['tcp'].in - rawProtos['http'].in - rawProtos['smtp'].in - rawProtos['ftp'].in);
+      const tcpOtherOut = Math.max(0, rawProtos['tcp'].out - rawProtos['http'].out - rawProtos['smtp'].out - rawProtos['ftp'].out);
+
+      const flatProtos = {
+        'http': rawProtos['http'],
+        'smtp': rawProtos['smtp'],
+        'ftp':  rawProtos['ftp'],
+        'udp':  rawProtos['udp'],
+        'icmp': rawProtos['icmp'],
+        'tcp':  { in: tcpOtherIn, out: tcpOtherOut }
+      };
+
+      let targetIn = 0;
+      let targetOut = 0;
+
+      if (protoFilter === 'all') {
+        for (const key in flatProtos) {
+          targetIn += flatProtos[key].in;
+          targetOut += flatProtos[key].out;
+        }
+      } else {
+        if (flatProtos[protoFilter]) {
+          targetIn = flatProtos[protoFilter].in;
+          targetOut = flatProtos[protoFilter].out;
+        }
+      }
+
+      if (targetIn === 0 && targetOut === 0) continue;
+
+      const uploadVal = isSwapped ? targetIn : targetOut;
+      const downloadVal = isSwapped ? targetOut : targetIn;
+
+      finalBucket.upload += uploadVal;
+      finalBucket.download += downloadVal;
+      
+      const displayIp = (ip === '0.0.0.0') ? '未知/广播 (0.0.0.0)' : ip;
+      const combinedTraffic = uploadVal + downloadVal;
+      finalBucket.perIp.set(displayIp, (finalBucket.perIp.get(displayIp) || 0) + combinedTraffic);
+      
+      // 更新详细聚合 Map
+      if (!ipDetailedAgg.has(displayIp)) {
+        ipDetailedAgg.set(displayIp, { 
+          up: 0, 
+          down: 0, 
+          total: 0, 
+          protoDetails: new Map() 
+        });
+      }
+      const agg = ipDetailedAgg.get(displayIp);
+      agg.up += uploadVal;
+      agg.down += downloadVal;
+      agg.total += combinedTraffic;
+
+      // 更新该 IP 下各协议的细分
+      for (const key in flatProtos) {
+        const pIn = flatProtos[key].in;
+        const pOut = flatProtos[key].out;
+        const pUp = isSwapped ? pIn : pOut;
+        const pDown = isSwapped ? pOut : pIn;
+        const pTotal = pUp + pDown;
+
+        if (pTotal > 0) {
+          if (!agg.protoDetails.has(key)) {
+            agg.protoDetails.set(key, { up: 0, down: 0, total: 0 });
+          }
+          const pAgg = agg.protoDetails.get(key);
+          pAgg.up += pUp;
+          pAgg.down += pDown;
+          pAgg.total += pTotal;
+
+          if (protoFilter === 'all') {
+            finalBucket.perProto.set(key, (finalBucket.perProto.get(key) || 0) + pTotal);
+          }
+        }
+      }
+      
+      if (protoFilter !== 'all') {
+        finalBucket.perProto.set(protoFilter, (finalBucket.perProto.get(protoFilter) || 0) + combinedTraffic);
+      }
+    }
+  });
+  
+  return {
+    buckets,
+    totalUpload: buckets.reduce((sum, b) => sum + b.upload, 0),
+    totalDownload: buckets.reduce((sum, b) => sum + b.download, 0),
+    ipAgg: new Map(Array.from(buckets.reduce((agg, b) => {
+      for (const [ip, val] of b.perIp.entries()) {
+        agg.set(ip, (agg.get(ip) || 0) + val);
+      }
+      return agg;
+    }, new Map()).entries())),
+    protoAgg: new Map(Array.from(buckets.reduce((agg, b) => {
+      for (const [proto, val] of b.perProto.entries()) {
+        agg.set(proto, (agg.get(proto) || 0) + val);
+      }
+      return agg;
+    }, new Map()).entries())),
+    ipDetailedAgg // 新增：返回详细聚合数据
+  };
+}
+
+/**
+ * 智能合并IP数据，确保"其他"类别占比在合理范围内
+ */
+function smartMergeIPData(aggMap) {
+  const entries = Array.from(aggMap.entries()).sort((a, b) => b[1] - a[1]);
+  const totalBytes = entries.reduce((sum, entry) => sum + entry[1], 0);
+  
+  if (totalBytes === 0) {
+    return { labels: [], data: [] };
+  }
+  
+  // 初始分组：前10个作为主要IP，其余作为"其他"
+  let top = entries.slice(0, 9);
+  let others = entries.slice(9);
+  let otherSum = others.reduce((sum, entry) => sum + entry[1], 0);
+  
+  // 计算"其他"类别占比
+  let otherPercentage = (otherSum / totalBytes) * 100;
+  
+  const minThresh = AppConfig.otherThreshold;
+  const maxThresh = AppConfig.otherThreshold * 3;
+  // 如果"其他"类别小于5%，尝试合并最小的IP
+  if (otherPercentage < minThresh && top.length > 1) {
+    // 从最小的IP开始尝试合并
+    for (let i = top.length - 1; i >= 0; i--) {
+      const smallestIP = top[i];
+      const potentialOtherSum = otherSum + smallestIP[1];
+      const potentialOtherPercentage = (potentialOtherSum / totalBytes) * 100;
+      
+      // 如果合并后"其他"类别在5%-15%范围内，则进行合并
+      if (potentialOtherPercentage >= minThresh && potentialOtherPercentage <= maxThresh) {
+        // 合并这个IP到"其他"
+        others.push(smallestIP);
+        top.splice(i, 1);
+        otherSum = potentialOtherSum;
+        otherPercentage = potentialOtherPercentage;
+        break;
+      }
+      // 如果合并后"其他"类别超过15%，则不合并，停止处理
+      else if (potentialOtherPercentage > maxThresh) {
+        break;
+      }
+      // 如果合并后仍然小于5%，继续尝试合并下一个最小的IP
+      else {
+        others.push(smallestIP);
+        top.splice(i, 1);
+        otherSum = potentialOtherSum;
+        otherPercentage = potentialOtherPercentage;
+        
+        // 如果已经合并到只剩一个主要IP，停止处理
+        if (top.length <= 1) {
+          break;
+        }
+      }
+    }
+  }
+  
+  // 准备最终的标签和数据
+  const labels = top.map(e => e[0]);
+  const data = top.map(e => e[1]);
+  
+  if (otherSum > 0) {
+    labels.push('其他');
+    data.push(otherSum);
+  }
+  
+  return { labels, data };
+}
+
+
+
+
+
+// ==========================================================图表渲染函数================================================================================================
+/**
+ * 主构建和渲染函数
+ */
+function buildAndRender() {
+  const range = AppState.currentTimeRange;
+  updateDropdownOptions(range);
+
+  const protoFilter = AppState.filters.proto;
+  const ipFilter = AppState.filters.ip;
+  const to = Math.floor(Date.now() / 1000);
+
+  const filteredData = getFilteredDataFromBuckets(range, protoFilter, ipFilter);
+  const { buckets, totalUpload, totalDownload, ipAgg, protoAgg, ipDetailedAgg } = filteredData;
+
+  // 准备折线图数据
+  const tsLabels = buckets.map(b => b.ts);
+  const uploadArr = buckets.map(b => b.upload);
+  const downloadArr = buckets.map(b => b.download); 
+  const totalArr = buckets.map(b => b.upload + b.download);
+  
+  AppState.currentPointTimestamps = tsLabels.slice();
+  const displayLabels = tsLabels.map(ts => formatTimeLabel(ts, to, range));
+  
+  // 渲染折线图
+  renderLineChart(displayLabels, uploadArr, downloadArr, totalArr, range);
+
+  renderIpPie(ipAgg);
+  renderProtoPie(protoAgg);
+  updateStatsAndPies(filteredData, protoFilter !== 'all', !!ipFilter);
+
+  // 渲染详细表格
+  renderDetailedTable(filteredData, ipFilter, protoFilter);
+}
+
+/**
+ * 渲染详细数据列表表格
+ */
+function renderDetailedTable(filteredData, ipFilter, protoFilter) {
+  const { ipDetailedAgg, totalUpload, totalDownload } = filteredData;
+  const totalTraffic = totalUpload + totalDownload;
+
+  const cardEl = document.querySelector('.details-card');
+  const titleEl = document.getElementById('detailsTitle');
+  const subTitleEl = document.getElementById('detailsSubTitle');
+  const headEl = document.getElementById('detailsTableHead');
+  const bodyEl = document.getElementById('detailsTableBody');
+
+  // --- 逻辑分支 1：同时筛选了 IP 和 协议 -> 直接隐藏整个卡片 ---
+  if (ipFilter && protoFilter !== 'all') {
+    cardEl.style.display = 'none';
+    return;
+  }
+  
+  // 否则显示卡片并重置内容
+  cardEl.style.display = '';
+  bodyEl.innerHTML = '';
+  headEl.innerHTML = '';
+
+  if (ipFilter) {
+    // --- 逻辑分支 2：单选了 IP -> 显示该 IP 的协议构成 (5列) ---
+    const ipData = ipDetailedAgg.get(ipFilter);
+    titleEl.textContent = `IP 详情: ${ipFilter}`;
+    subTitleEl.textContent = '协议流量构成 (上传/下载拆分)';
+
+    // 列顺序调整：协议 -> 总流量 -> 占比 -> 上传 -> 下载
+    headEl.innerHTML = `
+      <th>协议类型</th>
+      <th class="text-right">总流量</th>
+      <th class="pct-cell text-right">占比</th>
+      <th class="text-right">上传</th>
+      <th class="text-right">下载</th>
+    `;
+
+    if (ipData && ipData.protoDetails) {
+      const protoEntries = Array.from(ipData.protoDetails.entries())
+        .sort((a, b) => b[1].total - a[1].total);
+
+      protoEntries.forEach(([key, pData]) => {
+        const protoLabel = PROTOS.find(p => p.key === key)?.label || key.toUpperCase();
+        const pct = ipData.total > 0 ? (pData.total / ipData.total * 100).toFixed(1) : '0.0';
+        
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td style="font-weight:600">${protoLabel}</td>
+          <td class="text-right mono" style="color:#60a5fa; font-weight:600">${formatBytes(pData.total)}</td>
+          <td class="pct-cell text-right">
+            <span>${pct}%</span>
+            <div class="pct-bar-wrap"><div class="pct-bar-fill" style="width:${pct}%"></div></div>
+          </td>
+          <td class="text-right mono">${formatBytes(pData.up)}</td>
+          <td class="text-right mono">${formatBytes(pData.down)}</td>
+        `;
+        bodyEl.appendChild(tr);
+      });
+    }
+
+  } else if (protoFilter !== 'all') {
+    // --- 逻辑分支 3：单选了协议 -> 显示 Top IP 列表 (5列) ---
+    const protoLabel = PROTOS.find(p => p.key === protoFilter)?.label || '协议';
+    titleEl.textContent = `Top 活跃 IP (${protoLabel})`;
+    subTitleEl.textContent = `当前筛选: ${protoLabel} 协议`;
+
+    // 列顺序调整：IP -> 总流量 -> 占比 -> 上传 -> 下载
+    headEl.innerHTML = `
+      <th>IP 地址</th>
+      <th class="text-right">总流量</th>
+      <th class="pct-cell text-right">占比</th>
+      <th class="text-right">上传</th>
+      <th class="text-right">下载</th>
+    `;
+
+    const ipEntries = Array.from(ipDetailedAgg.entries())
+      .sort((a, b) => b[1].total - a[1].total);
+
+    ipEntries.slice(0, 100).forEach(([ip, data]) => {
+      const pct = totalTraffic > 0 ? (data.total / totalTraffic * 100).toFixed(1) : '0.0';
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="mono" style="cursor:pointer; color:#60a5fa" onclick="setSelectValue('ip', '${ip}', '${ip}')">${ip}</td>
+        <td class="text-right mono" style="font-weight:600; color:#fff">${formatBytes(data.total)}</td>
+        <td class="pct-cell text-right">
+          <span>${pct}%</span>
+          <div class="pct-bar-wrap"><div class="pct-bar-fill" style="width:${pct}%"></div></div>
+        </td>
+        <td class="text-right mono">${formatBytes(data.up)}</td>
+        <td class="text-right mono">${formatBytes(data.down)}</td>
+      `;
+      bodyEl.appendChild(tr);
+    });
+
+  } else {
+    // --- 逻辑分支 4：全域模式 (未过滤) -> 显示全宽协议表格 (11列) ---
+    titleEl.textContent = '详细数据列表';
+    subTitleEl.textContent = '全网 Top 活跃数据';
+
+    // 列顺序调整：IP -> 总流量 -> 占比 -> 上传 -> 下载 -> [细分协议]
+    headEl.innerHTML = `
+      <th>IP 地址</th>
+      <th class="text-right">总流量</th>
+      <th class="pct-cell text-right">占比</th>
+      <th class="text-right">上传</th>
+      <th class="text-right">下载</th>
+      <th class="text-right">FTP</th>
+      <th class="text-right">HTTP</th>
+      <th class="text-right">SMTP</th>
+      <th class="text-right">TCP</th>
+      <th class="text-right">UDP</th>
+      <th class="text-right">ICMP</th>
+    `;
+
+    const ipEntries = Array.from(ipDetailedAgg.entries())
+      .sort((a, b) => b[1].total - a[1].total);
+
+    ipEntries.slice(0, 100).forEach(([ip, data]) => {
+      const pct = totalTraffic > 0 ? (data.total / totalTraffic * 100).toFixed(1) : '0.0';
+      
+      // 获取各协议总流量的辅助函数
+      const getP = (key) => formatBytes(data.protoDetails.get(key)?.total || 0);
+
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="mono" style="cursor:pointer; color:#60a5fa" onclick="setSelectValue('ip', '${ip}', '${ip}')">${ip}</td>
+        <td class="text-right mono" style="font-weight:600; color:#fff">${formatBytes(data.total)}</td>
+        <td class="pct-cell text-right">
+          <span>${pct}%</span>
+          <div class="pct-bar-wrap"><div class="pct-bar-fill" style="width:${pct}%"></div></div>
+        </td>
+        <td class="text-right mono">${formatBytes(data.up)}</td>
+        <td class="text-right mono">${formatBytes(data.down)}</td>
+        <td class="text-right mono">${getP('ftp')}</td>
+        <td class="text-right mono">${getP('http')}</td>
+        <td class="text-right mono">${getP('smtp')}</td>
+        <td class="text-right mono">${getP('tcp')}</td>
+        <td class="text-right mono">${getP('udp')}</td>
+        <td class="text-right mono">${getP('icmp')}</td>
+      `;
+      bodyEl.appendChild(tr);
+    });
+  }
+}
+
+/**
+ * 渲染线图 (自动缩放 + 智能过滤参考线)
+ */
+function renderLineChart(displayLabels, uploadArr, downloadArr, totalArr, range) {
+  const ctx = document.getElementById('lineChart');
+
+  if (AppState.charts.lineChart) {
+    try { AppState.charts.lineChart.destroy(); } catch (e) { /* ignore */ }
+  }
+
+  const visConfig = Array.isArray(AppConfig.lineChartVisibility) 
+    ? AppConfig.lineChartVisibility 
+    : [true, false, true];
+
+  AppState.charts.lineChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: displayLabels,
+      datasets: [
+        {
+          label: '上传',
+          data: uploadArr || [],
+          fill: 'origin',
+          tension: 0.25,
+          pointRadius: 0,
+          borderWidth: 2,
+          backgroundColor: 'rgba(6,182,212,0.12)', 
+          borderColor: 'rgba(6,182,212,0.9)',
+          order: 3, 
+          hidden: !visConfig[0]
+        },
+        {
+          label: '下载',
+          data: downloadArr || [],
+          fill: 'origin',
+          tension: 0.25,
+          pointRadius: 0,
+          borderWidth: 2,
+          backgroundColor: 'rgba(34, 197, 94, 0.12)', 
+          borderColor: 'rgba(34, 197, 94, 0.8)',
+          order: 2, 
+          hidden: !visConfig[1]
+        },
+        {
+          label: '总量',
+          data: totalArr || [],
+          fill: 'origin',
+          tension: 0.25,
+          pointRadius: 0,
+          borderWidth: 2,
+          backgroundColor: 'rgba(59,130,246,0.12)', 
+          borderColor: 'rgba(59,130,246,0.95)',
+          order: 1, 
+          hidden: !visConfig[2]
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { 
+          position: 'top',
+          labels: { usePointStyle: true, boxWidth: 8 }
+        },
+        tooltip: {
+          mode: 'index',
+          intersect: false,
+          callbacks: {
+            title(items) {
+              if (!items || !items.length) return '';
+              const idx = items[0].dataIndex;
+              const ts = AppState.currentPointTimestamps[idx];
+              return formatTooltipTime(ts, AppState.currentTimeRange);
+            },
+            label: (context) => {
+              let label = context.dataset.label || '';
+              if (label) label += ': ';
+              if (context.parsed.y !== null) label += formatBytes(context.parsed.y);
+              return label;
+            }
+          }
+        }
+      },
+      scales: {
+        y: {
+          display: false,
+          beginAtZero: true,
+          grid: { color: 'rgba(255, 255, 255, 0.1)', lineWidth: 1 }
+        },
+        x: {
+          title: { display: true, text: '时间' },
+          ticks: { autoSkip: true, maxTicksLimit: 10 },
+          grid: { color: 'rgba(255, 255, 255, 0.1)', lineWidth: 1 }
+        }
+      },
+      interaction: { mode: 'index', intersect: false }
+    },
+    plugins: [{
+      id: 'flowLevelLines',
+      afterDraw: (chart) => {
+        const ctx2 = chart.ctx;
+        const yAxis = chart.scales.y;
+        const chartArea = chart.chartArea;
+        const currentMax = yAxis.max;
+        const currentMin = yAxis.min;
+        const gridHeight = (currentMax - currentMin) / 10;
+        const minDisplayValue = currentMin + (gridHeight * 1.5);
+
+        const visibleLevels = IMPORTANT_FLOW_LEVELS.filter(level =>
+          level.value <= currentMax && 
+          level.value >= minDisplayValue
+        );
+
+        visibleLevels.forEach(level => {
+          const yPosition = yAxis.getPixelForValue(level.value);
+          if (yPosition >= chartArea.top && yPosition <= chartArea.bottom) {
+            ctx2.save();
+            ctx2.beginPath();
+            ctx2.moveTo(chartArea.left, yPosition);
+            ctx2.lineTo(chartArea.right, yPosition);
+            ctx2.strokeStyle = level.color;
+            ctx2.lineWidth = 2;
+            ctx2.stroke();
+            ctx2.restore();
+
+            ctx2.save();
+            ctx2.textAlign = 'left';
+            ctx2.textBaseline = 'middle';
+            ctx2.font = 'bold 11px Inter, system-ui, sans-serif';
+            ctx2.fillStyle = level.color;
+            ctx2.fillText(level.label, chartArea.left + 8, yPosition - 8);
+            ctx2.restore();
+          }
+        });
+      }
+    }]
+  });
+}
+
+/**
+ * 渲染饼图 (包含点击联动逻辑)
+ */
+function renderPieChart(canvas, data, labels, colors, isProtocol = false) {
+  if (isProtocol && AppState.charts.protoPie) {
+    AppState.charts.protoPie.destroy();
+  } else if (!isProtocol && AppState.charts.ipPie) {
+    AppState.charts.ipPie.destroy();
+  }
+  
+  canvas.width = 400;
+  canvas.height = 250;
+  
+  const chart = new Chart(canvas, {
+    type: 'pie',
+    data: {
+      labels,
+      datasets: [{
+        data,
+        backgroundColor: colors,
+        borderColor: 'rgba(255,255,255,0.1)',
+        borderWidth: 1
+      }]
+    },
+    options: {
+      responsive: false,
+      maintainAspectRatio: false,
+      layout: {
+        padding: { left: 50, right: 50, top: 25, bottom: 25 }
+      },
+      onHover: (event, chartElement) => {
+        event.native.target.style.cursor = chartElement[0] ? 'pointer' : 'default';
+      },
+      onClick: (event, elements, chart) => {
+        if (!elements || elements.length === 0) return;
+        const index = elements[0].index;
+        const clickedLabel = chart.data.labels[index];
+        
+        if (isProtocol) {
+          const protoObj = PROTOS.find(p => p.label === clickedLabel);
+          if (protoObj) {
+            if (AppState.filters.proto === protoObj.key) {
+              setSelectValue('proto', 'all', '全部');
+            } else {
+              setSelectValue('proto', protoObj.key, protoObj.label);
+            }
+          }
+        } else {
+          if (clickedLabel === '其他') return; 
+          if (AppState.filters.ip === clickedLabel) {
+            setSelectValue('ip', '', '全部');
+          } else {
+            setSelectValue('ip', clickedLabel, clickedLabel);
+          }
+        }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          enabled: true,
+          callbacks: {
+            title: () => '',
+            label: ctx => {
+              const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+              const percentage = total > 0 ? ((ctx.raw / total) * 100).toFixed(1) : '0.0';
+              return `${ctx.label}: ${formatBytes(ctx.raw)} (${percentage}%)`;
+            }
+          }
+        }
+      }
+    },
+    plugins: [{
+      id: 'smartLegend',
+      afterDatasetsDraw: (chart) => {
+        drawSmartLegend(chart, labels, colors, data);
+      }
+    }]
+  });
+  
+  if (isProtocol) {
+    AppState.charts.protoPie = chart;
+  } else {
+    AppState.charts.ipPie = chart;
+  }
+  return chart;
+}
+
+/**
+ * 绘制智能连接线图例 
+ */
+function drawSmartLegend(chart, labels, colors, data) {
+  const ctx = chart.ctx;
+  const meta = chart.getDatasetMeta(0);
+  if (!meta || !meta.data) return;
+  
+  const CANVAS_WIDTH = chart.width;
+  const CANVAS_HEIGHT = chart.height;
+  const sampleArc = meta.data[0];
+  if (!sampleArc) return;
+  
+  const centerX = sampleArc.x;
+  const centerY = sampleArc.y;
+  const radius = sampleArc.outerRadius * 0.8; 
+  const LEGEND_HEIGHT = CANVAS_HEIGHT * 0.05;    
+  const CANVAS_MARGIN = CANVAS_HEIGHT * 0.06;    
+  
+  data.forEach((value, index) => {
+    if (value <= 0) return;
+    const element = meta.data[index];
+    if (!element) return;
+    
+    const label = labels[index];
+    const color = colors[index];
+    const displayText = label;
+    const midAngle = (element.startAngle + element.endAngle) / 2;
+    const sliceEdgeX = centerX + Math.cos(midAngle) * radius;
+    const sliceEdgeY = centerY + Math.sin(midAngle) * radius;
+    const dirX = Math.cos(midAngle);
+    const dirY = Math.sin(midAngle);
+    const initialSlantLength = radius * 0.3; 
+    const slantEndX = sliceEdgeX + dirX * initialSlantLength;
+    const slantEndY = sliceEdgeY + dirY * initialSlantLength;
+    const isLeftSide = slantEndX < centerX;
+    const horizontalDirection = isLeftSide ? -1 : 1;
+    let horizontalEndX = slantEndX + horizontalDirection * (radius * 0.2 + 5);
+    
+    if (isLeftSide) {
+      if (horizontalEndX < CANVAS_MARGIN) horizontalEndX = CANVAS_MARGIN;
+    } else {
+      if (horizontalEndX > CANVAS_WIDTH - CANVAS_MARGIN) horizontalEndX = CANVAS_WIDTH - CANVAS_MARGIN;
+    }
+    
+    const legendX = horizontalEndX;
+    const legendY = slantEndY; 
+    
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(sliceEdgeX, sliceEdgeY);
+    ctx.lineTo(slantEndX, slantEndY);
+    ctx.lineTo(horizontalEndX, slantEndY); 
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.restore();
+    
+    ctx.save();
+    ctx.font = '11px Inter, system-ui, sans-serif';
+    const textWidth = ctx.measureText(displayText).width;
+    const bgPadding = 4;
+    let bgX, textX;
+    if (isLeftSide) {
+      bgX = legendX - (textWidth + bgPadding * 2);
+      textX = bgX + bgPadding;
+      ctx.textAlign = 'left';
+    } else {
+      bgX = legendX;
+      textX = bgX + bgPadding;
+      ctx.textAlign = 'left';
+    }
+    ctx.fillStyle = 'rgba(15, 23, 36, 0.8)';
+    ctx.fillRect(bgX, legendY - LEGEND_HEIGHT / 2, textWidth + bgPadding * 2, LEGEND_HEIGHT);
+    ctx.fillStyle = '#e6eef6';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(displayText, textX, legendY);
+    ctx.restore();
+  });
+}
+
+/**
+ * 渲染IP饼图
+ */
+function renderIpPie(aggMap) {
+  const { labels, data } = smartMergeIPData(aggMap);
+  const colors = assignColorsToIPs(labels);
+  return renderPieChart(ipPieCanvas, data, labels, colors, false);
+}
+
+/**
+ * 渲染协议饼图
+ */
+function renderProtoPie(aggMap) {
+  const entries = Array.from(aggMap.entries())
+    .filter(e => e[1] > 0)
+    .sort((a, b) => b[1] - a[1]);
+  
+  const labels = entries.map(e => PROTOS.find(p => p.key === e[0]).label);
+  const data = entries.map(e => e[1]);
+  const colors = PROTOCOL_COLORS.slice(0, labels.length);
+  return renderPieChart(protoPieCanvas, data, labels, colors, true);
+}
+
+/**
+ * 更新统计信息
+ */
+function updateStatsAndPies(filteredData, protoFilterActive, ipFilterActive) {
+  const { buckets, totalUpload, totalDownload, ipAgg } = filteredData;
+  let peakUp = 0, peakDown = 0;
+  let peakUpIdx = -1, peakDownIdx = -1;
+
+  buckets.forEach((b, index) => {
+    if (b.upload > peakUp) {
+      peakUp = b.upload;
+      peakUpIdx = index;
+    }
+    if (b.download > peakDown) {
+      peakDown = b.download;
+      peakDownIdx = index;
+    }
+  });
+  
+  const calcPeriod = (idx, allBuckets) => {
+    if (idx < 0 || allBuckets.length < 2) return 0; 
+    const currentTs = allBuckets[idx].ts;
+    let sumDiff = 0;
+    let count = 0;
+    if (idx > 0) {
+      sumDiff += (currentTs - allBuckets[idx - 1].ts);
+      count++;
+    }
+    if (idx < allBuckets.length - 1) {
+      sumDiff += (allBuckets[idx + 1].ts - currentTs);
+      count++;
+    }
+    return count > 0 ? Math.round(sumDiff / count) : 0;
+  };
+
+  const formatDuration = (seconds) => {
+    if (seconds <= 0) return '未知周期';
+    if (seconds < 60) return `每${seconds}秒`;
+    if (seconds < 3600) return `每${Math.round(seconds / 60)}分钟`;
+    if (seconds < 86400) return `每${(seconds / 3600).toFixed(1).replace('.0', '')}小时`;
+    return `每${(seconds / 86400).toFixed(1).replace('.0', '')}天`;
+  };
+
+  const upPeriodStr = calcPeriod(peakUpIdx, buckets);
+  const downPeriodStr = calcPeriod(peakDownIdx, buckets);
+
+  document.getElementById('stat-upload').textContent = formatBytes(totalUpload);
+  document.getElementById('stat-download').textContent = formatBytes(totalDownload);
+  document.getElementById('stat-total').textContent = formatBytes(totalUpload + totalDownload);
+  document.getElementById('stat-uniqip').textContent = ipAgg.size;
+  document.getElementById('stat-peak-up').textContent = 
+    peakUp > 0 ? `${formatBytes(peakUp)} / ${formatDuration(upPeriodStr)}` : '0B';
+  document.getElementById('stat-peak-down').textContent = 
+    peakDown > 0 ? `${formatBytes(peakDown)} / ${formatDuration(downPeriodStr)}` : '0B';
+  
+  let topIpText = '-';
+  if (ipAgg.size) {
+    const entries = Array.from(ipAgg.entries()).sort((a, b) => b[1] - a[1]);
+    topIpText = `${entries[0][0]} (${formatBytes(entries[0][1])})`;
+  }
+  document.getElementById('stat-topip').textContent = topIpText;
+  
+  const protoAgg = filteredData.protoAgg;
+  let topProtoText = '-';
+  const entries = Array.from(protoAgg.entries()).sort((a, b) => b[1] - a[1]);
+  if (entries.length && entries[0][1] > 0) {
+    const key = entries[0][0];
+    const p = PROTOS.find(x => x.key === key);
+    topProtoText = `${p.label} (${formatBytes(entries[0][1])})`;
+  }
+  document.getElementById('stat-topproto').textContent = topProtoText;
+  
+  managePieVisibility(protoFilterActive, ipFilterActive);
+}
+
+/**
+ * 管理饼图可见性
+ */
+function managePieVisibility(protoFilterActive, ipFilterActive) {
+  const bothFiltered = protoFilterActive && ipFilterActive;
+  if (bothFiltered) {
+    ipPieContainer.style.display = 'none';
+    protoPieContainer.style.display = 'none';
+    pieToggleWrapper.style.display = 'none';
+    document.getElementById('stat-uniqip-row').style.display = 'none';
+    document.getElementById('stat-topip-row').style.display = 'none';
+    document.getElementById('stat-topproto-row').style.display = 'none';
+    return;
+  }
+  if (protoFilterActive) {
+    pieToggleWrapper.style.display = 'none';
+    ipPieContainer.style.display = '';
+    protoPieContainer.style.display = 'none';
+    document.getElementById('stat-uniqip-row').style.display = '';
+    document.getElementById('stat-topip-row').style.display = '';
+    document.getElementById('stat-topproto-row').style.display = 'none';
+  } else if (ipFilterActive) {
+    pieToggleWrapper.style.display = 'none';
+    ipPieContainer.style.display = 'none';
+    protoPieContainer.style.display = '';
+    document.getElementById('stat-uniqip-row').style.display = 'none';
+    document.getElementById('stat-topip-row').style.display = 'none';
+    document.getElementById('stat-topproto-row').style.display = '';
+  } else {
+    pieToggleWrapper.style.display = '';
+    if (ipPieContainer.style.display === 'none' && protoPieContainer.style.display === 'none') {
+      ipPieContainer.style.display = '';
+      protoPieContainer.style.display = 'none';
+    }
+    document.getElementById('stat-uniqip-row').style.display = '';
+    document.getElementById('stat-topip-row').style.display = '';
+    document.getElementById('stat-topproto-row').style.display = '';
+  }
+}
+
+
+// ====================================================时间滑块功能======================================================================================================
+
+/**
+ * 初始化时间滑块
+ */
+function initTimeSlider() {
+  updateTimeSliderPosition(0);
+
+  // 帮助函数：兼容 mouse / touch 获取 clientX
+  function getClientX(e) {
+    if (!e) return 0;
+    if (e.touches && e.touches.length) return e.touches[0].clientX;
+    if (e.changedTouches && e.changedTouches.length) return e.changedTouches[0].clientX;
+    return e.clientX;
+  }
+
+  // 统一的拖动处理（mousemove / touchmove 共用）
+  function onPointerMove(e) {
+    if (!AppState.isDragging) return;
+    // 阻止默认以避免页面滚动（触摸时）
+    if (e.preventDefault) e.preventDefault();
+    const rect = timeSlider.getBoundingClientRect();
+    const x = getClientX(e) - rect.left;
+    const percent = Math.max(0, Math.min(1, x / rect.width));
+    updateTimeSliderPosition(percent);
+    // 拖动过程中不 snap
+    updateTimeRangeFromPosition(percent, false);
+  }
+
+  // 统一的释放处理（mouseup / touchend 共用）
+  function onPointerUp(e) {
+    if (!AppState.isDragging) return;
+    AppState.isDragging = false;
+
+    // 移除所有相关监听（mouse 与 touch）
+    document.removeEventListener('mousemove', onPointerMove);
+    document.removeEventListener('mouseup', onPointerUp);
+    document.removeEventListener('touchmove', onPointerMove, { passive: false });
+    document.removeEventListener('touchend', onPointerUp);
+
+    const rect = timeSlider.getBoundingClientRect();
+    const x = getClientX(e) - rect.left;
+    const percent = Math.max(0, Math.min(1, x / rect.width));
+    updateTimeRangeFromPosition(percent, true);
+  }
+
+  // 鼠标拖拽（handle）
+  timeSliderHandle.addEventListener('mousedown', (e) => {
+    AppState.isDragging = true;
+    document.addEventListener('mousemove', onPointerMove);
+    document.addEventListener('mouseup', onPointerUp);
+    e.preventDefault();
+  });
+
+  // 触摸拖拽（handle）
+  timeSliderHandle.addEventListener('touchstart', (e) => {
+    AppState.isDragging = true;
+    // passive: false 以便 preventDefault 生效
+    document.addEventListener('touchmove', onPointerMove, { passive: false });
+    document.addEventListener('touchend', onPointerUp);
+    // 阻止触摸产生的滚动或其他默认行为
+    if (e.preventDefault) e.preventDefault();
+  }, { passive: false });
+
+  // 点击滑道（mouse）
+  timeSlider.addEventListener('click', (e) => {
+    if (e.target === timeSliderHandle) return;
+    const rect = timeSlider.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const percent = Math.max(0, Math.min(1, x / rect.width));
+    updateTimeSliderPosition(percent);
+    updateTimeRangeFromPosition(percent, true);
+  });
+
+  // 触摸滑道（把 touchend 视作点击）
+  timeSlider.addEventListener('touchend', (e) => {
+    // 如果点击的是 handle，由 handle 的 touchend/onPointerUp 处理
+    if (e.target === timeSliderHandle) return;
+    // 使用 changedTouches 获取触点位置
+    const rect = timeSlider.getBoundingClientRect();
+    const x = getClientX(e) - rect.left;
+    const percent = Math.max(0, Math.min(1, x / rect.width));
+    updateTimeSliderPosition(percent);
+    updateTimeRangeFromPosition(percent, true);
+    if (e.preventDefault) e.preventDefault();
+  }, { passive: false });
+
+  // labels 支持触摸（与点击行为一致）
+  timeSliderLabels.forEach((label, index) => {
+    label.addEventListener('click', () => {
+      const percent = index / (timeSliderLabels.length - 1);
+      updateTimeSliderPosition(percent);
+      updateTimeRangeFromPosition(percent, true);
+    });
+    label.addEventListener('touchend', (e) => {
+      // 阻止合并点击触发页面滚动等
+      if (e.preventDefault) e.preventDefault();
+      const percent = index / (timeSliderLabels.length - 1);
+      updateTimeSliderPosition(percent);
+      updateTimeRangeFromPosition(percent, true);
+    }, { passive: false });
+  });
+}
+
+/**
+ * 更新时间滑块位置
+ */
+function updateTimeSliderPosition(percent) {
+  timeSliderHandle.style.left = `${percent * 100}%`;
+  timeSliderFill.style.width = `${percent * 100}%`;
+}
+
+/**
+ * 根据滑块位置更新时间范围
+ */
+function updateTimeRangeFromPosition(percent, shouldSnap) {
+  const ranges = ['1h', '1d', '1w', '1m', '1y'];
+  let index;
+  
+  if (shouldSnap) {
+    index = Math.round(percent * (ranges.length - 1));
+    const snappedPercent = index / (ranges.length - 1);
+    updateTimeSliderPosition(snappedPercent);
+  } else {
+    index = Math.floor(percent * (ranges.length - 1) + 0.5);
+  }
+  
+  const newRange = ranges[index];
+  
+  if (newRange !== AppState.currentTimeRange) {
+    AppState.currentTimeRange = newRange;
+    
+    timeSliderLabels.forEach((label, i) => {
+      if (i === index) {
+        label.classList.add('active');
+      } else {
+        label.classList.remove('active');
+      }
+    });
+    
+    buildAndRender();
+  }
+}
+
+// ========================================================事件处理==================================================================================================
+/**
+ * 文件上传处理 - 简化版本，只负责传递文件
+ */
+filesInput.addEventListener('change', async () => {
+  const files = Array.from(filesInput.files);
+  if (!files.length) return;
+
+  // 1. 显示加载中
+  await showLoading('正在解析文件...');
+
+  try {
+    // 稍微延迟，把繁重的清空和解析任务放在 Loading 显示之后
+    AppState.rawRecords = [];
+    AppState.detectedIntervals = {};
+    AppState.preprocessedBuckets = { '1h': [], '1d': [], '1w': [], '1m': [], '1y': [] };
+    
+    // 这里的 infoEl 更新可以保留，作为底层 log
+    infoEl.textContent = '解析中...';
+    
+    let totalRecords = 0;
+    let messages = [];
+    
+    for (const f of files) {
+      // 更新 loading 文字，让用户知道进度
+      loadingTextEl.textContent = `正在解析: ${f.name}`;
+      
+      const result = await parseFile(f);
+      
+      if (!result.isPreprocessed && result.interval) {
+        AppState.detectedIntervals[result.file] = result.interval;
+      } else if (result.isPreprocessed) {
+        AppState.detectedIntervals[result.file] = 'preprocessed';
+      }
+      
+      totalRecords += result.recordCount;
+      messages.push(result.message);
+    }
+    
+    if (messages.length === 1) {
+      infoEl.textContent = messages[0];
+    } else {
+      infoEl.textContent = `已处理 ${files.length} 个文件: ${messages.join('; ')}`;
+    }
+    
+    loadingTextEl.textContent = '正在渲染图表...';
+    // 给一点时间让文字更新
+    await new Promise(r => setTimeout(r, 10));
+    
+    buildAndRender();
+    
+  } catch (err) {
+    console.error(err);
+    alert('处理出错: ' + err.message);
+  } finally {
+    // 2. 无论成功失败，最后隐藏遮罩
+    hideLoading();
+    // 清空 input，允许重复上传同一个文件
+    filesInput.value = '';
+  }
+});
+
+/**
+ * 加载示例数据
+ */
+function generateSampleCSV() {
+  const ips = ['192.168.1.10', '192.168.1.11', '192.168.1.12', '192.168.1.13', '192.168.1.14'];
+  const now = Math.floor(Date.now() / 1000);
+  const oneDay = 86400;
+
+  function getRandomInt(min, max) {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+  }
+
+  const lines = [];
+
+  for (let i = 0; i < 500; i++) {
+    const ip = ips[getRandomInt(0, ips.length - 1)];
+    const timestamp = now - getRandomInt(0, oneDay);
+
+    const values = [];
+    for (let j = 0; j < 14; j++) {
+      values.push(getRandomInt(0, 1000000));
+    }
+
+    const line = `${ip},${timestamp},${values.join(',')}`;
+    lines.push(line);
+  }
+
+  return lines.join('\n');
+}
+//加载示例数据
+loadDefaultBtn.addEventListener('click', async () => {
+  await showLoading('生成示例数据...');
+  
+  try {
+    // 模拟一点延迟，让用户感觉到操作被响应了
+    await new Promise(r => setTimeout(r, 300));
+
+    const res = Papa.parse(generateSampleCSV(), {
+      dynamicTyping: true,
+      skipEmptyLines: true
+    });
+    
+    AppState.rawRecords = [];
+    AppState.detectedIntervals = {'示例数据': 60};
+    AppState.preprocessedBuckets = { '1h': [], '1d': [], '1w': [], '1m': [], '1y': [] };
+    
+    res.data.forEach(r => {
+      while (r.length < 16) r.push(0);
+      AppState.rawRecords.push({
+        ip: String(r[FIELD.ip]),
+        ts: Number(r[FIELD.ts]),
+        row: r
+      });
+    });
+    
+    loadingTextEl.textContent = '预处理数据...';
+    await new Promise(r => setTimeout(r, 10));
+
+    preprocessAllData();
+    
+    infoEl.textContent = `已加载示例数据 ${AppState.rawRecords.length} 条`;
+    buildAndRender();
+  } finally {
+    hideLoading();
+  }
+});
+
+/**
+ * 饼图切换处理
+ */
+ipPieBtn.addEventListener('click', () => {
+  // 1. 切换容器可见性
+  ipPieContainer.style.display = '';
+  protoPieContainer.style.display = 'none';
+  
+  // 2. 触发 IP 饼图重绘动画
+  if (AppState.charts.ipPie) {
+    // reset() 将图表元素重置为初始状态（通常是半径为0）
+    AppState.charts.ipPie.reset();
+    // update() 触发从初始状态到最终状态的动画
+    AppState.charts.ipPie.update();
+  }
+});
+
+protoPieBtn.addEventListener('click', () => {
+  // 1. 切换容器可见性
+  ipPieContainer.style.display = 'none';
+  protoPieContainer.style.display = '';
+  
+  // 2. 触发协议饼图重绘动画
+  if (AppState.charts.protoPie) {
+    AppState.charts.protoPie.reset();
+    AppState.charts.protoPie.update();
+  }
+});
+
+
+// ==============================================================初始化============================================================================================
+async function initApp() {
+  
+  // 初始化时间滑块
+  initTimeSlider();
+
+  // 【新增】启动响应式缩放监听
+  initResponsivePieScaling();
+
+  // 设置初始饼图显示
+  ipPieContainer.style.display = '';
+  protoPieContainer.style.display = 'none';
+  
+  // 创建初始空图表
+  AppState.charts.ipPie = new Chart(ipPieCanvas, {
+    type: 'pie',
+    data: { labels: [], datasets: [{ data: [] }] },
+    options: {
+      responsive: false,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } }
+    }
+  });
+  
+  AppState.charts.protoPie = new Chart(protoPieCanvas, {
+    type: 'pie',
+    data: { labels: [], datasets: [{ data: [] }] },
+    options: {
+      responsive: false,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } }
+    }
+  });
+  
+  const lineCtx = document.getElementById('lineChart');
+  AppState.charts.lineChart = new Chart(lineCtx, {
+    type: 'line',
+    data: {
+      labels: ['现在'],
+      datasets: [
+        { label: '上传', data: [0] },
+        { label: '总量', data: [0] }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false
+    }
+  });
+  
+  // 如果启用自动读取，尝试加载文件
+  if (AppConfig.autoLoadEnabled && AppConfig.autoLoadUrl) {
+    // 如果启用了自动加载，可以隐藏手动上传按钮 (可选)
+    filesInput.style.display = 'none';
+    loadDefaultBtn.style.display = 'none';
+    await autoLoadFiles();
+  }
+}
+
+// 页面加载完成后初始化应用
+window.addEventListener('load', initApp);
+</script>
